@@ -246,7 +246,12 @@ def synthesis_node(state: SentimentGraphState) -> dict:
         # ── BUILD CONTEXT FOR THIS BATCH ─────────────────────────────────────
         ticker_contexts = []
         for t in batch:
-            reddit_text = "None available"
+            # Assemble Reddit posts as readable text
+            reddit_text = "\n".join([
+                f"  [{p.get('subreddit','?')} | score:{p.get('score',0)}] "
+                f"{p.get('title','')} - {p.get('text','')[:300]}"
+                for p in t.get("top_reddit_posts", [])[:3]
+            ]) or "  No Reddit posts available."
 
             # Assemble StockTwits messages
             st_text = "\n".join([
@@ -261,7 +266,12 @@ StockTwits Bull Ratio: {t['st_bull_ratio']:.0%} bullish ({t['st_message_volume']
 RSI: {t['rsi']} | 30d Momentum: {t['momentum_30d']:+.1%} | Volatility: {t['volatility']:.0%} annualised
 Fundamental Score: {t['fundamental_score']}/100 | Sector: {t['sector']}
 
+
+Reddit Posts (highest scored):
+{reddit_text}
+
 StockTwits Messages (most liked):
+
 {st_text}
 """)
 
@@ -269,11 +279,11 @@ StockTwits Messages (most liked):
 
         # ── SYSTEM PROMPT ─────────────────────────────────────────────────────
         system_prompt = """You are a senior equity research analyst specialising in 
-alternative data and social sentiment signals. You analyse StockTwits messages and 
+alternative data and social sentiment signals. You analyse Reddit discussions and StockTwits messages to 
 StockTwits messages to generate investment insights.
 
 CRITICAL RULES:
-1. SARCASM AWARENESS: Retail boards use heavy irony.
+1. SARCASM AWARENESS: Reddit (especially r/wallstreetbets) uses heavy irony.
    "This is definitely going to zero 🚀" is often BULLISH. "TSLA to the moon" 
    followed by "I'm totally not being sarcastic" is BEARISH. Interpret the 
    FINANCIAL INTENT, not the literal words. Look for context clues: emojis 
@@ -284,7 +294,7 @@ CRITICAL RULES:
    quantitative metrics. Do not invent price targets, earnings figures, or 
    statistics not present in the data. If data is insufficient, say so.
 
-3. CALIBRATION: If posts are overwhelmingly positive but RSI is 85 
+3. CALIBRATION: If Reddit posts are overwhelmingly positive but RSI is 85 
    and volatility is 90%, the bull case should acknowledge momentum risk.
    Integrate quantitative context with sentiment — don't analyse them separately.
 
@@ -446,7 +456,10 @@ def evaluation_node(state: SentimentGraphState) -> dict:
         # Give evaluator: the source posts + what LLM claimed
         # Ask: which claims are grounded, which are not?
 
-        source_posts = "" #
+        source_posts = "\n".join([
+            f"- [{p.get('subreddit','?')}] {p.get('title','')} {p.get('text','')[:200]}"
+            for p in ticker_data.get("top_reddit_posts", [])[:3]
+        ])
             
             
         ])
@@ -465,7 +478,12 @@ TASK: Verify whether the analysis below is grounded in the provided source mater
 
 SOURCE MATERIAL for {ticker_data['ticker']}:
 
+
+Reddit Posts:
+{source_posts if source_posts else "None available"}
+
 StockTwits Messages:
+
 {source_msgs if source_msgs else "None available"}
 
 Quantitative Data Available:

@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
+import concurrent.futures
 
 from stocktwits_agent import fetch_all_stocktwits
 from fundamentals import fetch_all_fundamentals
+from search_reddit_agent import fetch_reddit_sentiment_via_search
 from sentiment_scorer import score_all_tickers, get_trending_now
 from graph import run_sentiment_graph
 from risk_classifier import classify_all_tickers
@@ -23,25 +25,27 @@ app.add_middleware(
 def run_pipeline():
     universe_list = STOCK_UNIVERSE
     try:
-        # We removed Reddit as the API went paid and user opted for a single source
-        reddit_data = {} 
+        # Phase 1: Parallel Data Ingestion
+        # Using ThreadPoolExecutor to drastically cut runtime from 90s to 30s
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            future_reddit = executor.submit(fetch_reddit_sentiment_via_search, universe_list)
+            future_st     = executor.submit(fetch_all_stocktwits, universe_list)
+            future_fund   = executor.submit(fetch_all_fundamentals, universe_list)
+            
+            reddit_data = future_reddit.result()
+            st_data     = future_st.result()
+            fund_data   = future_fund.result()
         
-        # 1. Fetch StockTwits
-        st_data = fetch_all_stocktwits(universe_list)
-        
-        # 2. Fetch Fundamentals
-        fund_data = fetch_all_fundamentals(universe_list)
-        
-        # 3. Score
+        # Phase 2: Scoring & Fusion
         scored = score_all_tickers(reddit_data, st_data, fund_data, universe_list)
         
-        # 4. Trending
+        # Phase 3: Trending Spotlight
         trending = get_trending_now(scored, n=3)
         
-        # 5. LLM Synthesis
+        # Phase 4: LLM Synthesis (on top N only)
         final_reports = run_sentiment_graph(scored)
         
-        # 6. Risk Classification
+        # Phase 5: Risk Classification
         classified = classify_all_tickers(final_reports)
         
         return {

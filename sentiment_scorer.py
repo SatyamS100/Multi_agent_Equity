@@ -323,8 +323,10 @@ def compute_composite_score(
     # Denominator: sum of (weight × confidence) for normalisation
 
     components = [
-        (w.get("sentiment_score", 0),   sentiment_confidence,    blended_sentiment),
-        (w.get("fundamental_score", 0), fundamental_confidence,  fundamental_normalised),
+        (w["sentiment_score"],   sentiment_confidence,    blended_sentiment),
+        (w["mention_momentum"],  momentum_confidence,     momentum_normalised),
+        (w["fundamental_score"], fundamental_confidence,  fundamental_normalised),
+        (w["unusual_activity"],  spike_confidence,        spike_normalised),
     ]
 
     weighted_sum    = sum(weight * conf * signal for weight, conf, signal in components)

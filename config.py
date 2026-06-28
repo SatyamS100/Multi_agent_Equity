@@ -94,8 +94,10 @@ TOP_N_FOR_LLM = 10
 # short-term predictor, fundamentals prevent false positives on garbage stocks.
 
 SCORE_WEIGHTS = {
-    "sentiment_score":   0.60,   # LLM-assessed sentiment quality (-1 to +1) from StockTwits
-    "fundamental_score": 0.40,   # Quantitative financial health score
+    "sentiment_score":   0.35,   # LLM-assessed sentiment quality (-1 to +1)
+    "mention_momentum":  0.30,   # Rate of change in mention volume (7-day)
+    "fundamental_score": 0.20,   # Quantitative financial health score
+    "unusual_activity":  0.15,   # Binary spike flag, weighted into composite
 }
 
 # ── RISK TIER THRESHOLDS ──────────────────────────────────────────────────────

@@ -132,7 +132,7 @@ def get_llm_client() -> ChatGroq:
           where hallucinated numbers could be mistaken for real data.
     """
     return ChatGroq(
-        model="llama3-70b-8192",
+        model="llama-3.1-8b-instant",
         api_key=GROQ_API_KEY,
         temperature=0.3,
         max_tokens=2000,   # Enough for full bull/bear case + risk summary

@@ -37,11 +37,11 @@ STOCK_UNIVERSE = [
     # Mega-cap Tech
     "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD", 
     # High Beta / Retail Darlings
-    "PLTR", "COIN", "SHOP", "SQ", "GME", "AMC",
+    "PLTR", "COIN", "SHOP", "SQ", "GME", "AMC", "MSTR",
     # Value / Dividend
     "JPM", "XOM", "PFE", "DIS",
     # Speculative / Growth
-    "SOFI", "RIVN", "RBLX", "SNAP", "HOOD"
+    "SOFI", "RIVN", "LCID", "RBLX", "SNAP", "HOOD"
 ]
 
 # ── REDDIT CONFIGURATION ──────────────────────────────────────────────────────

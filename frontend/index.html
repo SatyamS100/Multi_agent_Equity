@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantLLM Sentiment Platform</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>📊 QuantLLM</h2>
+                <p>Social Sentiment & Fundamentals</p>
+            </div>
+            
+            <div class="controls">
+                <div class="control-group">
+                    <label>🎯 Risk Appetite</label>
+                    <p class="help-text">Slide right to include higher-risk tiers.</p>
+                    <input type="range" id="risk-slider" min="1" max="4" value="4">
+                    <p id="risk-label" class="active-label">Showing: All (incl. Speculative)</p>
+                </div>
+                
+                <hr>
+                
+                <button id="run-btn" class="primary-btn">🚀 Run Pipeline</button>
+            </div>
+
+            <div class="status-box" id="status-box">
+                <p>Status: <span id="pipeline-status">Ready</span></p>
+                <p class="time">Last run: <span id="run-time">Never</span></p>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header>
+                <h1>Multi-Agent Equity Platform</h1>
+                <p>Powered by StockTwits Data, Quantitative Fundamentals, and Groq LLM.</p>
+            </header>
+
+            <section id="trending-section" class="hidden">
+                <h3>🔥 Trending Now</h3>
+                <div class="trending-grid" id="trending-grid">
+                    <!-- Trending cards injected here -->
+                </div>
+            </section>
+
+            <section id="tickers-section">
+                <h3>📋 Stock Universe (Ranked by Signal)</h3>
+                <p class="subtitle" id="ticker-subtitle">Run the pipeline to load stocks.</p>
+                <div class="ticker-list" id="ticker-list">
+                    <!-- Ticker cards injected here -->
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

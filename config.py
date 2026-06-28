@@ -34,11 +34,14 @@ GROQ_API_KEY    = os.getenv("GROQ_API_KEY")
 #   → Add Redis cache so unchanged tickers don't re-fetch
 
 STOCK_UNIVERSE = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META",   # Mega-cap
-    "TSLA", "AMD",  "PLTR", "COIN",  "SHOP", "SQ",      # High-beta growth
-    "GME",  "AMC",                                        # Meme stocks
-    "JPM",  "XOM",  "PFE",  "DIS",                       # Sectoral
-    "SOFI", "RIVN", "RBLX", "SNAP", "HOOD"               # Mid-cap volatile
+    # Mega-cap Tech
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD", 
+    # High Beta / Retail Darlings
+    "PLTR", "COIN", "SHOP", "SQ", "GME", "AMC",
+    # Value / Dividend
+    "JPM", "XOM", "PFE", "DIS",
+    # Speculative / Growth
+    "SOFI", "RIVN", "RBLX", "SNAP", "HOOD"
 ]
 
 # ── REDDIT CONFIGURATION ──────────────────────────────────────────────────────

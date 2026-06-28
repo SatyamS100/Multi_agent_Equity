@@ -460,9 +460,6 @@ def evaluation_node(state: SentimentGraphState) -> dict:
             f"- [{p.get('subreddit','?')}] {p.get('title','')} {p.get('text','')[:200]}"
             for p in ticker_data.get("top_reddit_posts", [])[:3]
         ])
-            
-            
-        ])
         source_msgs = "\n".join([
             f"- {m.get('text','')[:200]}"
             for m in ticker_data.get("top_st_messages", [])[:3]

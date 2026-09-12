@@ -1,4 +1,4 @@
-# src/sentiment_scorer.py
+# sentiment_scorer.py
 # ─────────────────────────────────────────────────────────────────────────────
 # SENTIMENT SCORER — Signal Fusion and Composite Ranking Layer
 #
@@ -379,7 +379,7 @@ def score_all_tickers(
         "sector":               "Technology",
         "top_reddit_posts":     [...],       # For LLM
         "top_st_messages":      [...],       # For LLM
-        "price_chart":          [...],       # For Streamlit UI
+        "price_chart":          [...],       # 30d closes, for frontend charting
     }
 
     Interview: "What does the output of your scoring layer look like?"

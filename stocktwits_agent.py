@@ -1,4 +1,4 @@
-# src/stocktwits_agent.py
+# stocktwits_agent.py
 # ─────────────────────────────────────────────────────────────────────────────
 # STOCKTWITS AGENT — Labeled Financial Sentiment Layer
 #
@@ -51,6 +51,25 @@ TIME_BETWEEN_CALLS    = 0.5   # 500ms between calls → max 120 req/min, well un
 MAX_RETRIES           = 3     # Retry failed requests this many times
 MESSAGES_TO_FETCH     = 30    # Most recent messages per ticker
 
+# StockTwits blocks requests with no browser-like User-Agent (returns 403).
+# A missing/blank Accept header can also get flagged by their edge WAF.
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
+
+# If more than this fraction of the universe returns no data, something is
+# broken upstream (blocked, rate-limited, API change) — fail loudly instead
+# of silently feeding the scorer a universe of fake-neutral signals.
+MAX_FAILURE_RATIO = 0.5
+
+
+class StockTwitsFetchError(RuntimeError):
+    """Raised when StockTwits data collection fails for most of the universe."""
+
 
 # ── SINGLE TICKER FETCH ───────────────────────────────────────────────────────
 def fetch_stocktwits_data(ticker: str) -> Optional[dict]:
@@ -84,6 +103,7 @@ def fetch_stocktwits_data(ticker: str) -> Optional[dict]:
             response = requests.get(
                 url,
                 params=params,
+                headers=REQUEST_HEADERS,
                 timeout=10,   # 10 second timeout — don't hang forever
             )
 
@@ -286,7 +306,7 @@ def fetch_all_stocktwits(universe: List[str] = STOCK_UNIVERSE) -> Dict[str, dict
 
     Why sequential and not parallel?
         StockTwits public tier rate limit is ~200 req/hour.
-        With 25 tickers and 0.5s delay = 12.5 seconds total. Fast enough.
+        With 24 tickers and 0.5s delay = 12 seconds total. Fast enough.
         Parallelising would risk hitting rate limits and complicating error
         handling. Not worth it at this scale.
 
@@ -297,8 +317,16 @@ def fetch_all_stocktwits(universe: List[str] = STOCK_UNIVERSE) -> Dict[str, dict
     Returns:
         Dict mapping ticker → parsed StockTwits signal dict.
         Every ticker in universe is present (empty signal if no data).
+
+    Raises:
+        StockTwitsFetchError: if more than MAX_FAILURE_RATIO of the universe
+            returned no data. A zeroed/neutral signal is indistinguishable
+            from genuine neutral sentiment downstream, so silently feeding
+            the scorer a universe of fake-neutral signals (e.g. because
+            StockTwits started blocking us) is worse than crashing loudly.
     """
     results = {}
+    failed_tickers = []
 
     for i, ticker in enumerate(universe):
         logger.info(f"Fetching StockTwits [{i+1}/{len(universe)}]: {ticker}")
@@ -306,6 +334,7 @@ def fetch_all_stocktwits(universe: List[str] = STOCK_UNIVERSE) -> Dict[str, dict
         raw = fetch_stocktwits_data(ticker)
 
         if raw is None:
+            failed_tickers.append(ticker)
             # No data available — return zeroed-out signal for this ticker
             # Downstream agents always get a complete universe
             results[ticker] = {
@@ -327,6 +356,14 @@ def fetch_all_stocktwits(universe: List[str] = STOCK_UNIVERSE) -> Dict[str, dict
 
         # Polite delay between calls — don't hammer the API
         time.sleep(TIME_BETWEEN_CALLS)
+
+    failure_ratio = len(failed_tickers) / len(universe) if universe else 0.0
+    if failure_ratio > MAX_FAILURE_RATIO:
+        raise StockTwitsFetchError(
+            f"StockTwits data collection failed for {len(failed_tickers)}/"
+            f"{len(universe)} tickers ({failure_ratio:.0%}): {failed_tickers}. "
+            f"Aborting rather than scoring on fake-neutral data."
+        )
 
     # Summary
     bullish_tickers = [

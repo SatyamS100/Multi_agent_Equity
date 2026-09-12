@@ -13,7 +13,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const riskLabel = document.getElementById("risk-label");
     
     let globalData = null;
-    
+
+    // Ticker cards render LLM-generated bull/bear case text, which is
+    // ultimately derived from scraped Reddit/StockTwits post bodies — an
+    // attacker-influenced string could ride that path into the DOM via
+    // innerHTML. Escape every value we interpolate.
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
     const TIER_ORDER = ["Conservative", "Moderate", "Aggressive", "Speculative"];
     const TIER_LABELS = {
         1: "🛡️ Conservative",
@@ -37,14 +50,14 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const response = await fetch("http://127.0.0.1:8000/api/run_pipeline");
             const data = await response.json();
-            
-            if(data.status === "error") {
+
+            if(!response.ok) {
                 statusText.innerText = "Failed";
                 statusText.style.color = "var(--danger)";
-                alert("Error: " + data.message);
+                alert("Error: " + (data.detail || `Request failed (${response.status})`));
                 return;
             }
-            
+
             globalData = data;
             
             statusText.innerText = "Complete";
@@ -73,7 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
         
         trendingGrid.innerHTML = trending.map(t => `
             <div class="trending-card">
-                <h2>${t.ticker}</h2>
+                <h2>${escapeHtml(t.ticker)}</h2>
                 <p style="color: #cbd5e1;">Top Momentum</p>
                 <div class="metric">StockTwits Bull: ${(t.st_bull_ratio * 100).toFixed(0)}%</div>
                 <div class="metric">Price: $${t.current_price.toFixed(2)}</div>
@@ -103,18 +116,18 @@ document.addEventListener("DOMContentLoaded", () => {
             let llmHtml = "";
             if(t.has_llm_analysis && t.llm_analysis) {
                 const a = t.llm_analysis;
-                const themes = a.key_themes ? a.key_themes.map(th => `<span class="theme-pill">${th}</span>`).join("") : "";
+                const themes = a.key_themes ? a.key_themes.map(th => `<span class="theme-pill">${escapeHtml(th)}</span>`).join("") : "";
                 llmHtml = `
                     <div class="llm-section">
                         <div class="llm-header">🤖 Groq LLM Synthesis</div>
                         <div class="llm-grid">
                             <div class="llm-case bull">
                                 <h4>Bull Case</h4>
-                                <p>${a.bull_case || 'N/A'}</p>
+                                <p>${escapeHtml(a.bull_case || 'N/A')}</p>
                             </div>
                             <div class="llm-case bear">
                                 <h4>Bear Case</h4>
-                                <p>${a.bear_case || 'N/A'}</p>
+                                <p>${escapeHtml(a.bear_case || 'N/A')}</p>
                             </div>
                         </div>
                         <div class="llm-themes">
@@ -123,17 +136,17 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>
                 `;
             }
-            
+
             return `
                 <div class="ticker-card" style="border-left-color: ${color}">
                     <div class="card-header">
                         <div class="ticker-title">
-                            <h2>${t.ticker}</h2>
+                            <h2>${escapeHtml(t.ticker)}</h2>
                             <span class="price">$${t.current_price.toFixed(2)}</span>
                             <span class="change ${changeClass}">${changeSign}${t.daily_change_pct.toFixed(2)}%</span>
                         </div>
                         <div class="badge" style="background-color: ${color}33; color: ${color}; border: 1px solid ${color}">
-                            ${t.risk_tier}
+                            ${escapeHtml(t.risk_tier)}
                         </div>
                     </div>
                     

@@ -1,4 +1,4 @@
-# src/graph.py
+# graph.py
 # ─────────────────────────────────────────────────────────────────────────────
 # LANGGRAPH ORCHESTRATION — Multi-Agent Synthesis Engine
 #
@@ -103,33 +103,24 @@ def get_llm_client() -> ChatGroq:
     """
     Initialises the LLM client via LangChain's Groq integration.
 
-    Why ChatGroq (LangChain) instead of raw anthropic.Groq()?
+    Why ChatGroq (LangChain) instead of the raw groq SDK?
         LangChain's wrapper integrates natively with LangGraph nodes.
         It handles message formatting (System/Human/AI message objects),
         streaming, retry logic, and token counting automatically.
         The raw SDK is more flexible but requires more boilerplate inside
         LangGraph nodes.
 
-    Model: llm-sonnet-4-6
-        Sonnet is the right choice here for three reasons:
-        1. Speed: Haiku is faster but too weak for nuanced sarcasm detection
-           and financial analysis synthesis
-        2. Cost: Opus is more capable but 5× the cost with marginal gain
-           for structured analysis tasks
-        3. Quality: Sonnet handles financial terminology, sarcasm, and
-           multi-document synthesis at production quality
+    Model: llama-3.1-8b-instant (via Groq)
+        Groq's hosted Llama 3.1 8B gives low-latency inference at low cost,
+        which matters here because synthesis + evaluation run two LLM calls
+        per batch of 3 tickers. A larger hosted model would improve nuance
+        on sarcasm detection at the cost of latency and API spend.
 
     temperature=0.3:
         Lower temperature = more deterministic, more factual output.
         We don't want creative hallucinations in financial analysis.
         We want consistent, grounded synthesis.
         0.3 allows some natural language variation without going off-script.
-
-    Interview: "Why not GPT-4 or Gemini?"
-        → LLM's training emphasises factual accuracy and hedging uncertainty.
-          It's more likely to say "data is insufficient to conclude X" rather
-          than fabricating a confident claim. Critical for financial analysis
-          where hallucinated numbers could be mistaken for real data.
     """
     return ChatGroq(
         model="llama-3.1-8b-instant",
@@ -151,7 +142,7 @@ def preparation_node(state: SentimentGraphState) -> dict:
     Filters scored tickers to the top N and batches them for LLM.
 
     Why batch instead of one big call?
-        25 tickers × full context per ticker = enormous prompt.
+        24 tickers × full context per ticker = enormous prompt.
         LLM's context window can handle it, but:
         1. Token cost scales linearly — 10 tickers costs 10× more than 1
         2. LLM's attention quality degrades on very long prompts
@@ -165,8 +156,8 @@ def preparation_node(state: SentimentGraphState) -> dict:
 
     Interview: "How do you manage token costs in production?"
         → Batch strategically. Run LLM on top-N only. Cache outputs.
-          Use cheaper models for simple tasks (Haiku for filtering,
-          Sonnet for synthesis, Opus only for novel edge cases).
+          Use a smaller/faster model for high-volume synthesis and reserve
+          larger models for cases that need deeper reasoning.
     """
     scored  = state["scored_tickers"]
     top_n   = [t for t in scored if t.get("send_to_llm", False)]
@@ -411,8 +402,9 @@ def evaluation_node(state: SentimentGraphState) -> dict:
           Layer 1: Synthesis prompt explicitly instructs grounding
           Layer 2: Evaluator re-reads source posts, scores every claim,
                    flags anything not traceable to the provided data
-        This is how Groq's own Constitutional AI works — one model
-        generates, another critiques. We're applying the same pattern.
+        One model generates, a second model critiques — the same
+        generate-then-critique idea behind Anthropic's Constitutional AI,
+        applied here as a lightweight fact-checking pass.
 
     Interview: "What do you do when the evaluator flags a hallucination?"
         → Current implementation: flag and reduce confidence score.

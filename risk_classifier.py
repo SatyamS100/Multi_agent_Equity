@@ -1,10 +1,10 @@
-# src/risk_classifier.py
+# risk_classifier.py
 # ─────────────────────────────────────────────────────────────────────────────
 # RISK CLASSIFIER — Investor Profile Mapping Layer
 #
 # Responsibility: Takes the final enriched ticker reports and assigns each
 # to a risk tier (Conservative / Moderate / Aggressive / Speculative).
-# Also generates the display metadata the Streamlit UI renders directly.
+# Also generates the display metadata the frontend renders directly.
 #
 # Why risk tiers matter:
 #   A composite score ranks stocks by signal quality. But signal quality
@@ -122,7 +122,7 @@ TIER_METADATA = {
     },
 }
 
-# Slider display order for Streamlit UI
+# Slider display order for the frontend's risk slider
 # Left = most conservative, Right = most speculative
 TIER_ORDER = ["Conservative", "Moderate", "Aggressive", "Speculative"]
 
@@ -350,7 +350,7 @@ def compute_signal_strength(ticker_data: dict) -> str:
 def generate_quick_summary(ticker_data: dict, tier: str) -> str:
     """
     Generates a one-line summary combining tier + key signals.
-    This is the text that appears under each ticker card in the Streamlit UI.
+    This is the text that appears under each ticker card in the frontend.
 
     Examples:
         "Aggressive — Spike detected, RSI 78, bull momentum building on WSB"
@@ -360,7 +360,7 @@ def generate_quick_summary(ticker_data: dict, tier: str) -> str:
     Why generate this here instead of in the UI?
         Business logic belongs in the data layer, not the presentation layer.
         The UI should just render strings, not compute them.
-        This also makes the summary testable independently of Streamlit.
+        This also makes the summary testable independently of the frontend.
 
     Args:
         ticker_data: Full enriched ticker dict
@@ -480,7 +480,7 @@ def classify_all_tickers(final_reports: List[dict]) -> Dict[str, List[dict]]:
     """
     Classifies every ticker and returns them grouped by risk tier.
 
-    The grouped structure is what the Streamlit UI consumes directly.
+    The grouped structure is what the frontend consumes directly.
     Each tier is a separate filterable group.
 
     Output structure:

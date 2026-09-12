@@ -1,15 +1,16 @@
 ﻿import time
+from fastapi import HTTPException
 from backend import run_pipeline
 
 start_time = time.time()
 print("Starting parallel pipeline...")
-result = run_pipeline()
-end_time = time.time()
-
-duration = end_time - start_time
-print(f"\nPipeline finished in {duration:.2f} seconds.")
-print(f"Status: {result.get('status')}")
-if result.get('status') == 'error':
-    print(f"Error Message: {result.get('message')}")
+try:
+    result = run_pipeline()
+except HTTPException as e:
+    print(f"\nPipeline finished in {time.time() - start_time:.2f} seconds.")
+    print(f"Status: error")
+    print(f"Error Message: {e.detail}")
 else:
+    print(f"\nPipeline finished in {time.time() - start_time:.2f} seconds.")
+    print(f"Status: {result.get('status')}")
     print(f"Number of tickers classified: {sum(len(v) for v in result.get('classified', {}).values())}")

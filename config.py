@@ -15,54 +15,40 @@ load_dotenv()  # Pulls variables from .env into os.environ
 # Interview note: In production this would use a secrets manager (AWS Secrets
 # Manager, HashiCorp Vault). .env is appropriate for dev/demo.
 
-REDDIT_CLIENT_ID     = os.getenv("REDDIT_CLIENT_ID")
-REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
-REDDIT_USER_AGENT    = os.getenv("REDDIT_USER_AGENT", "SentimentBot/1.0")
-GROQ_API_KEY    = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# ── CORS ───────────────────────────────────────────────────────────────────────
+# Comma-separated list of origins allowed to call the backend API.
+# Falls back to common local-dev frontend origins if unset.
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500"
+    ).split(",")
+    if origin.strip()
+]
 
 # ── STOCK UNIVERSE ────────────────────────────────────────────────────────────
-# 25 tickers chosen deliberately across risk tiers:
-#   Mega-cap stable:   AAPL, MSFT, GOOGL, AMZN, NVDA, META
-#   High-beta growth:  TSLA, AMD, PLTR, COIN, SHOP, SQ
-#   Meme-adjacent:     GME, AMC, BBBY (these generate WSB noise)
-#   Sectoral mix:      JPM (finance), XOM (energy), PFE (pharma), DIS (media)
-#   Mid-cap volatile:  SOFI, RIVN, LCID, RBLX, SNAP, HOOD
+# 24 tickers chosen deliberately across risk tiers:
+#   Mega-cap Tech:            AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AMD
+#   High Beta / Retail:       PLTR, COIN, SHOP, SQ, GME, AMC, MSTR
+#   Value / Dividend:         JPM, XOM, PFE, DIS
+#   Speculative / Growth:     SOFI, RIVN, RBLX, SNAP, HOOD
 #
 # Interview: "How would you scale to S&P 500?"
-#   → Parallelise reddit_agent using asyncpraw (async version of PRAW)
 #   → Batch LLM calls (top-N by activity, not all 500)
 #   → Add Redis cache so unchanged tickers don't re-fetch
 
 STOCK_UNIVERSE = [
     # Mega-cap Tech
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD", 
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD",
     # High Beta / Retail Darlings
     "PLTR", "COIN", "SHOP", "SQ", "GME", "AMC", "MSTR",
     # Value / Dividend
     "JPM", "XOM", "PFE", "DIS",
     # Speculative / Growth
-    "SOFI", "RIVN", "LCID", "RBLX", "SNAP", "HOOD"
+    "SOFI", "RIVN", "RBLX", "SNAP", "HOOD"
 ]
-
-# ── REDDIT CONFIGURATION ──────────────────────────────────────────────────────
-# Three subreddits chosen because they represent three distinct investor
-# archetypes with very different signal characteristics:
-#
-#   r/wallstreetbets → Retail speculators, high emotion, meme-driven, 
-#                      sarcasm-heavy. Noisy but leads price action on 
-#                      meme stocks. WSB coined "YOLO" and "tendies."
-#
-#   r/stocks         → More analytical retail investors. Discussions include
-#                      earnings analysis, sector rotations, macro. 
-#                      Less noise than WSB.
-#
-#   r/investing      → Long-term, fundamentals-oriented. Lower frequency but
-#                      higher signal-to-noise. Good counter-signal to WSB.
-
-SUBREDDITS = ["wallstreetbets", "stocks", "investing"]
-
-# How many posts to pull per subreddit per ticker per scrape cycle
-POSTS_PER_SUBREDDIT = 50
 
 # ── SPIKE DETECTION THRESHOLD ─────────────────────────────────────────────────
 # If a ticker's 24h mention count is ≥ SPIKE_MULTIPLIER × its 7-day daily
@@ -105,7 +91,7 @@ SCORE_WEIGHTS = {
 
 # ── RISK TIER THRESHOLDS ──────────────────────────────────────────────────────
 # Composite score (0–100) maps to investor risk profile.
-# These buckets let the Streamlit slider filter meaningfully.
+# These buckets let the frontend's risk slider filter meaningfully.
 #
 # Conservative:  Strong fundamentals, low volatility, moderate positive sentiment
 # Moderate:      Decent fundamentals, some momentum, acceptable risk

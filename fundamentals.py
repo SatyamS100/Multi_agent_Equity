@@ -1,4 +1,4 @@
-# src/fundamentals.py
+# fundamentals.py
 # ─────────────────────────────────────────────────────────────────────────────
 # FUNDAMENTALS AGENT — Quantitative Financial Signal Layer
 #
@@ -391,7 +391,7 @@ def fetch_ticker_fundamentals(ticker: str) -> Optional[dict]:
         fundamental_score = compute_fundamental_score(info)
 
         # ── 30-DAY PRICE SERIES FOR UI CHART ─────────────────────────────────
-        # Return last 30 days of closes as list for Streamlit's Plotly chart
+        # Return last 30 days of closes as a list for the frontend to chart
         price_chart_data = [
             {"date": str(date.date()), "price": round(float(price), 2)}
             for date, price in closes.tail(30).items()
@@ -426,7 +426,7 @@ def fetch_all_fundamentals(universe: list = STOCK_UNIVERSE) -> Dict[str, dict]:
 
     Why not parallel/async here?
         yfinance uses requests under the hood and isn't async-safe.
-        For 25 tickers at ~1-2s each = 25-50s total. Acceptable for a
+        For 24 tickers at ~1-2s each = 24-48s total. Acceptable for a
         daily/hourly refresh cycle. Not acceptable for real-time — at
         that point you'd switch to a paid data provider (Bloomberg,
         Polygon.io) with proper async APIs.

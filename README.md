@@ -1,5 +1,7 @@
 # Multi-Agent Equity Sentiment Platform
 
+[![Tests](https://github.com/SatyamS100/Multi_agent_Equity/actions/workflows/tests.yml/badge.svg)](https://github.com/SatyamS100/Multi_agent_Equity/actions/workflows/tests.yml)
+
 Fuses social sentiment (StockTwits, Reddit-via-search), quantitative
 fundamentals (yfinance), and LLM synthesis (Groq + LangGraph) into a ranked,
 risk-classified view of a 24-stock universe. FastAPI backend, vanilla JS
@@ -97,10 +99,17 @@ DuckDuckGo/Groq APIs — needs a real `GROQ_API_KEY`):
 python test_pipeline.py
 ```
 
+## CI
+
+`.github/workflows/tests.yml` runs `pytest` on every push/PR to `main`
+(GitHub-hosted Ubuntu runner, no secrets required — it never touches
+`test_pipeline.py` or any live API).
+
 ## Known limitations
 
 Tracked in [BUGS.md](BUGS.md). Headline items: nothing has exercised the
 real external APIs end-to-end yet in this environment (no `GROQ_API_KEY`
-available), no CI runs `pytest` automatically on push, and two
-characterized-but-unfixed quirks in the override-rule/composite-score logic
-need a product decision before they're worth changing.
+available), and one characterized-but-unfixed quirk in
+`sentiment_scorer.compute_composite_score()`'s confidence weighting needs a
+product decision before it's worth changing (a related quirk in
+`risk_classifier`'s override rules was fixed in Phase 2 — see BUGS.md).

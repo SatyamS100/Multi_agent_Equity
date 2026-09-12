@@ -193,13 +193,23 @@ def apply_override_rules(
 
     Override Rules (in order of severity):
 
-    RULE 1 — EXTREME VOLATILITY FLOOR:
+    RULE 1 — EXTREME VOLATILITY FLOOR (hard floor, short-circuits 2-5):
         If annualised volatility > 80%, classify as Speculative regardless
-        of composite score. A stock moving ±5% daily is inappropriate for
-        conservative investors no matter how strong the Reddit signal is.
+        of composite score — and return immediately, before rules 2-5 run.
+        A stock moving ±5% daily is inappropriate for conservative investors
+        no matter how strong the Reddit signal OR the fundamentals are.
         Interview: "What's the rationale?" → Position sizing. Conservative
         investors can't manage a 80%+ vol stock. Risk is in the instrument,
-        not the signal.
+        not the signal — no other input should be able to override that.
+
+        This is the only rule that short-circuits. Earlier, rules 2-5 ran
+        unconditionally after rule 1, which meant rule 4 (strong
+        fundamentals floor) could immediately undo rule 1: a stock with
+        both extreme volatility and fundamental_score > 80 got bumped from
+        Speculative back to Moderate one line later, silently defeating the
+        volatility floor. Rule 1 is the one override in this function meant
+        to be an absolute ceiling on risk tier, so it's the one rule that
+        needs to win regardless of ordering.
 
     RULE 2 — FUNDAMENTAL FAILURE + SPIKE = PUMP RISK:
         If fundamental_score < 25 AND spike_detected = True, classify as
@@ -254,7 +264,7 @@ def apply_override_rules(
         idx = TIER_ORDER.index(current)
         return TIER_ORDER[max(idx - 1, 0)]
 
-    # ── RULE 1: EXTREME VOLATILITY FLOOR ─────────────────────────────────────
+    # ── RULE 1: EXTREME VOLATILITY FLOOR (hard floor — returns immediately) ──
     if volatility > 0.80:
         if tier != "Speculative":
             tier = "Speculative"
@@ -262,9 +272,12 @@ def apply_override_rules(
                 f"Extreme volatility ({volatility:.0%} annualised) → "
                 f"reclassified to Speculative"
             )
+        # Hard floor: no later rule (in particular rule 4's strong-
+        # fundamentals floor) gets a chance to lift the tier back up.
+        return tier, rules_fired
 
     # ── RULE 2: FUNDAMENTAL FAILURE + SPIKE = PUMP RISK ──────────────────────
-    elif fundamental_score < 25 and spike_detected:
+    if fundamental_score < 25 and spike_detected:
         if tier not in ("Speculative", "Aggressive"):
             tier = "Speculative"
             rules_fired.append(

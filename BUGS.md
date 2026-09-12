@@ -21,20 +21,16 @@
 | 10 | No automated tests beyond the manual, network-dependent `test_pipeline.py`. | Added `tests/` (pytest): unit tests for the pure functions in `sentiment_scorer.py`, `risk_classifier.py`, `fundamentals.py`, and `data_fetch_utils.py` (no network calls), plus `tests/test_backend.py` — a FastAPI `TestClient` test that monkeypatches the three fetch agents and `run_sentiment_graph` to verify the success response shape, the 502-on-failure path, and CORS header behavior, all without hitting a real API or needing `GROQ_API_KEY`. Added `requirements-dev.txt` (pytest + httpx, pinned). Run with `pytest` from the repo root. |
 | 11 | Groq model was hardcoded by name (`"llama-3.1-8b-instant"` in `graph.py`) — already broke once in this repo's history when Groq deprecated the previous model, with no startup check. `GROQ_API_KEY` wasn't validated either; a missing key failed deep inside `synthesis_node`/`evaluation_node` with an opaque SDK auth error. | Added `config.GROQ_MODEL` (env-overridable, defaults to `llama-3.1-8b-instant`) — swapping models after a future Groq deprecation is now a `.env` change, not a code change. `graph.get_llm_client()` now raises a clear `RuntimeError` immediately if `GROQ_API_KEY` is unset, instead of failing deep inside a node with a generic auth error. |
 
-## Newly found during Phase 1 (characterized, not yet fixed)
+## Newly found during Phase 1 (characterized in tests)
 
-- **`risk_classifier.apply_override_rules()`: rule 4 can silently undo rule
-  1.** The five override rules run in a fixed sequence and each rule only
-  looks at the tier produced by the previous one, not *why* it got there.
-  Concretely: a stock with extreme volatility (`> 80%`, rule 1 forces
-  `Speculative`) and strong fundamentals (`> 80`, rule 4's "floor") gets
-  bumped from `Speculative` back up to `Moderate` by rule 4 immediately
-  after rule 1 set it — rule 1's volatility floor doesn't actually hold in
-  that combination. Pinned down as a characterization test
-  (`test_rule4_can_override_rule1_when_fundamentals_are_strong` in
-  `tests/test_risk_classifier.py`) rather than "fixed" here, since the
-  right fix (should rule 1 be a hard floor no later rule can lift? should
-  rule ordering matter at all?) is a product decision, not a bug fix.
+- **`risk_classifier.apply_override_rules()`: rule 4 could silently undo
+  rule 1.** The five override rules ran in a fixed sequence and each rule
+  only looked at the tier produced by the previous one, not *why* it got
+  there. Concretely: a stock with extreme volatility (`> 80%`, rule 1
+  forces `Speculative`) and strong fundamentals (`> 80`, rule 4's "floor")
+  got bumped from `Speculative` back up to `Moderate` by rule 4 immediately
+  after rule 1 set it — rule 1's volatility floor didn't actually hold in
+  that combination. **Fixed in Phase 2** — see the table below.
 - **`sentiment_scorer.compute_composite_score()`'s `weight_conf_sum == 0`
   branch is dead code.** `fundamental_confidence` is hardcoded to `1.0`
   ("Fundamentals are hard data, always trust them"), so as long as
@@ -44,19 +40,29 @@
   reddit/StockTwits confidence are both 0, the composite silently collapses
   to exactly the fundamental score instead. See
   `test_composite_score_collapses_to_fundamentals_when_sentiment_confidence_is_zero`
-  in `tests/test_sentiment_scorer.py`.
+  in `tests/test_sentiment_scorer.py`. **Still open** — changing the
+  weighting formula affects every score the app produces, so this needs an
+  explicit product decision, unlike the rule-ordering fix above (which the
+  existing rule-1 docstring already implied was the intended behavior).
 
-## Still open (Phase 2+ candidates)
+## Phase 2 — CI & the rule-ordering fix (done, 2026-09-13)
 
+| # | Issue | Fix |
+|---|-------|-----|
+| 12 | No CI workflow ran `pytest` automatically — tests existed and passed locally (Phase 1) but nothing enforced they kept passing on push/PR. | Added `.github/workflows/tests.yml`: installs `requirements.txt` + `requirements-dev.txt`, runs the import sanity check, then `pytest -v`, on every push/PR to `main`. Deliberately excludes `test_pipeline.py` (needs a real `GROQ_API_KEY` and hits live third-party APIs — not appropriate for CI). |
+| 13 | `risk_classifier.apply_override_rules()` rule 4 could silently undo rule 1's extreme-volatility floor (see above). | Rule 1 is now a hard floor: when it fires, the function returns immediately instead of falling through to rules 2-5. It's the only rule that short-circuits — its own docstring already stated the volatility floor should apply "regardless of composite score," which implicitly meant regardless of fundamentals too. Regression test: `test_rule1_is_a_hard_floor_rule4_cannot_lift_it` in `tests/test_risk_classifier.py` (replaces the Phase 1 characterization test of the same bug). |
+
+## Still open (Phase 3+ candidates)
+
+- **`compute_composite_score()`'s dead fallback branch** (see above) — still
+  needs a product decision before touching the weighting formula.
 - **Requirements pins were verified to *install and import* cleanly
-  together** (Phase 0) and the pipeline logic is now covered by unit +
-  mocked-integration tests (Phase 1), but nothing has exercised the real
-  external APIs end-to-end (StockTwits, yfinance, Groq, DuckDuckGo) — no
-  `GROQ_API_KEY` is available in this environment. Worth a live
-  `python test_pipeline.py` run with a real key before calling this
+  together** (Phase 0) and the pipeline logic is covered by unit +
+  mocked-integration tests running in CI (Phases 1-2), but nothing has
+  exercised the real external APIs end-to-end (StockTwits, yfinance, Groq,
+  DuckDuckGo) — no `GROQ_API_KEY` is available in this environment. Worth a
+  live `python test_pipeline.py` run with a real key before calling this
   repo production-ready.
-- The two "newly found" items above (rule ordering interaction, dead
-  fallback branch) are documented but not fixed — need a product decision
-  first, not just a code change.
-- No CI workflow runs `pytest` automatically on push/PR yet — the tests
-  exist and pass locally but nothing enforces they keep passing.
+- CI only runs on GitHub's hosted runners for push/PR to `main` — no
+  branch-protection rule requires the check to pass before merging (that's
+  a repo-settings change, not something a commit can express).

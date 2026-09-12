@@ -61,20 +61,21 @@ def test_rule2_does_not_fire_without_spike():
     assert rules == []
 
 
-def test_rule4_can_override_rule1_when_fundamentals_are_strong():
-    # Characterization test: rules run in sequence (1 -> 2 -> 3 -> 4 -> 5)
-    # and each later rule only looks at the *current* tier, not which rule
-    # produced it. So an extreme-volatility stock with fundamental_score > 80
-    # gets forced to Speculative by rule 1, then immediately pulled back up
-    # to Moderate by rule 4's "strong fundamentals floor" — rule 1's
-    # volatility floor does not actually stick in this case. Documented
-    # here because it reads as a bug at a glance; see BUGS.md.
+def test_rule1_is_a_hard_floor_rule4_cannot_lift_it():
+    # Regression test for a Phase 1 finding (see BUGS.md): rule 1 used to
+    # run unconditionally alongside rules 2-5, so a stock with both extreme
+    # volatility and fundamental_score > 80 got forced to Speculative by
+    # rule 1 and then immediately pulled back up to Moderate by rule 4's
+    # "strong fundamentals floor" one line later — the volatility floor
+    # didn't actually stick. Rule 1 now short-circuits (returns before
+    # rules 2-5 run) specifically so strong fundamentals can't override it.
     tier, rules = apply_override_rules(
         initial_tier="Conservative", volatility=0.85, fundamental_score=90,
         rsi=50, spike_detected=False, sentiment_score=0.5, has_llm=False,
     )
-    assert tier == "Moderate"
-    assert len(rules) == 2
+    assert tier == "Speculative"
+    assert len(rules) == 1
+    assert "Extreme volatility" in rules[0]
 
 
 def test_rule3_overbought_spike_downgrades_one_tier():

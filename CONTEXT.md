@@ -76,6 +76,27 @@ Followed directly from the "Still open" list Phase 0 left in BUGS.md:
 
 Full before/after detail is in [BUGS.md](BUGS.md)'s Phase 1 table.
 
+## Phase 2 — CI & the rule-ordering fix (this session, 2026-09-13)
+
+Closed out two of Phase 1's "still open" items; the third
+(`compute_composite_score()`'s dead fallback branch) remains open pending a
+product decision on the confidence-weighting formula itself.
+
+- Added `.github/workflows/tests.yml` — `pytest` now runs automatically on
+  every push/PR to `main`, so the Phase 1 test suite actually enforces
+  itself going forward instead of relying on someone remembering to run it.
+- Fixed the `risk_classifier.apply_override_rules()` rule-ordering bug
+  Phase 1 characterized: rule 1 (extreme volatility) is now a hard floor
+  that returns immediately, so rule 4 (strong-fundamentals floor) can no
+  longer silently lift a stock back out of `Speculative` right after rule 1
+  put it there. This was judged safe to fix outright (rather than leaving
+  it open like the composite-score item) because rule 1's own docstring
+  already stated the volatility floor should apply "regardless of
+  composite score" — the hard-floor behavior was the documented intent,
+  not a new design decision.
+
+Full before/after detail is in [BUGS.md](BUGS.md)'s Phase 2 table.
+
 ## Design notes worth knowing before touching scoring logic
 
 - `config.py` is the single source of truth for tunable constants
@@ -89,4 +110,5 @@ Full before/after detail is in [BUGS.md](BUGS.md)'s Phase 1 table.
   This is a cost/latency control, not a bug.
 - `risk_classifier.py` applies override rules on top of the score-threshold
   tier (e.g. extreme volatility always forces Speculative regardless of
-  score) — these encode domain knowledge the raw composite score can't.
+  score, and — as of Phase 2 — no later rule can lift it back out) — these
+  encode domain knowledge the raw composite score can't.

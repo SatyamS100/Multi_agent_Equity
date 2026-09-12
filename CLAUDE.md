@@ -83,13 +83,14 @@ serve it with any static file server; it calls the backend at
   This is by design (cost/latency control), not a bug — don't "fix" it by
   running LLM synthesis on the full universe without discussing the cost
   tradeoff first.
-- **`risk_classifier.apply_override_rules()`'s five rules run in a fixed
-  sequence and can interact** — e.g. rule 4 (strong-fundamentals floor) can
-  immediately undo rule 1 (extreme-volatility floor) if a stock has both
-  extreme volatility and fundamental_score > 80. This is characterized in
-  `tests/test_risk_classifier.py` and BUGS.md, not fixed — the correct
-  behavior is a product decision (should rule 1 be a hard floor?), so don't
-  "fix" it silently as a drive-by change.
+- **`risk_classifier.apply_override_rules()`'s rule 1 (extreme volatility)
+  is a hard floor that returns immediately** — rules 2-5 never run once
+  rule 1 fires. This was a deliberate Phase 2 fix (see BUGS.md #13): rule 4
+  used to be able to silently lift a stock back out of Speculative right
+  after rule 1 put it there. If you add a rule 6+, decide explicitly
+  whether it should also be able to override rule 1's floor, and don't
+  assume the current fall-through ordering of rules 2-5 is load-bearing —
+  it isn't, by design.
 - **`sentiment_scorer.compute_composite_score()`'s `fundamental_confidence`
   is hardcoded to `1.0`**, which means the composite score can never
   actually be "no data at all → 50.0" through the normal call path — see
@@ -102,6 +103,8 @@ serve it with any static file server; it calls the backend at
   catch import-time errors before they hit runtime.
 - Run `pytest` (needs `requirements-dev.txt` installed). It's fast and
   needs no network/API key — no excuse to skip it before committing.
+  `.github/workflows/tests.yml` runs the same thing on every push/PR to
+  `main`, so a broken test surfaces on GitHub even if you forget locally.
 - If you touched `requirements.txt`, install into a clean venv and re-run
   the import check — don't just trust that a version bump "should" work.
 - If you touched frontend rendering of any server-derived text (ticker

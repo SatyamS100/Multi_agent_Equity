@@ -36,6 +36,7 @@ from config import (
     MOMENTUM_WINDOW,
     VOLATILITY_WINDOW,
 )
+from data_fetch_utils import raise_if_too_many_failed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -439,6 +440,13 @@ def fetch_all_fundamentals(universe: list = STOCK_UNIVERSE) -> Dict[str, dict]:
     Returns:
         Dict mapping ticker → fundamentals dict.
         Missing tickers logged but excluded (don't fail the whole run).
+
+    Raises:
+        DataFetchError (from data_fetch_utils): if more than
+            MAX_FAILURE_RATIO of the universe failed. A handful of missing
+            tickers is normal (delisted, yfinance hiccup); a majority
+            failing means yfinance itself is broken/blocked, and silently
+            scoring on a near-empty universe is worse than crashing loudly.
     """
     results = {}
     failed  = []
@@ -454,6 +462,8 @@ def fetch_all_fundamentals(universe: list = STOCK_UNIVERSE) -> Dict[str, dict]:
 
     if failed:
         logger.warning(f"Failed to fetch fundamentals for: {failed}")
+
+    raise_if_too_many_failed("yfinance fundamentals", failed, len(universe))
 
     # Summary statistics — useful for debugging signal quality
     if results:

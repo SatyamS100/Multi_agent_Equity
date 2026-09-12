@@ -113,6 +113,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const changeSign = t.daily_change_pct >= 0 ? "+" : "";
             const color = getTierColor(t.risk_tier);
             
+            const sparkline = buildSparkline(t.price_chart, t.daily_change_pct >= 0);
+
             let llmHtml = "";
             if(t.has_llm_analysis && t.llm_analysis) {
                 const a = t.llm_analysis;
@@ -149,7 +151,14 @@ document.addEventListener("DOMContentLoaded", () => {
                             ${escapeHtml(t.risk_tier)}
                         </div>
                     </div>
-                    
+
+                    ${sparkline ? `
+                    <div class="chart-row">
+                        <span class="chart-label">30D</span>
+                        ${sparkline}
+                    </div>
+                    ` : ""}
+
                     <div class="grid-metrics">
                         <div class="metric-box">
                             <div class="metric-label">Composite Score</div>
@@ -175,6 +184,39 @@ document.addEventListener("DOMContentLoaded", () => {
         }).join("");
     }
     
+    // fundamentals.py computes a 30-day close-price series per ticker
+    // (price_chart) specifically for the UI to chart, but until now nothing
+    // rendered it. Build a minimal dependency-free SVG sparkline instead of
+    // pulling in a charting library for a single line per card.
+    // Every interpolated value here is a number we computed (toFixed
+    // output), not raw ticker data, so no escaping is needed.
+    function buildSparkline(priceChart, isPositive) {
+        if (!priceChart || priceChart.length < 2) return "";
+
+        const prices = priceChart.map(p => p.price);
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        const range = max - min || 1;   // avoid /0 on a flat line
+
+        const width = 120;
+        const height = 36;
+        const step = width / (prices.length - 1);
+
+        const points = prices.map((price, i) => {
+            const x = (i * step).toFixed(1);
+            const y = (height - ((price - min) / range) * height).toFixed(1);
+            return `${x},${y}`;
+        }).join(" ");
+
+        const color = isPositive ? "var(--success)" : "var(--danger)";
+
+        return `
+            <svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="30-day price trend">
+                <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+            </svg>
+        `;
+    }
+
     function getTierColor(tier) {
         switch(tier) {
             case "Conservative": return "#3B82F6"; // Blue

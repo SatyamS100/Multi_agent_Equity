@@ -17,6 +17,13 @@ load_dotenv()  # Pulls variables from .env into os.environ
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# Groq model id used for synthesis + evaluation (see graph.py). Kept
+# env-overridable rather than hardcoded in graph.py: Groq has deprecated a
+# model this project depended on before (see CONTEXT.md) — when that
+# happens again, swapping GROQ_MODEL in .env is a config change, not a
+# code change. Current default: https://console.groq.com/docs/models
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+
 # ── CORS ───────────────────────────────────────────────────────────────────────
 # Comma-separated list of origins allowed to call the backend API.
 # Falls back to common local-dev frontend origins if unset.

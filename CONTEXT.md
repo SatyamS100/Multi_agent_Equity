@@ -50,6 +50,32 @@ What changed — full list in the commit(s) this context was written
 alongside; see [BUGS.md](BUGS.md) for the itemized before/after and what's
 still open.
 
+## Phase 1 — robustness & tests (this session, 2026-09-12)
+
+Followed directly from the "Still open" list Phase 0 left in BUGS.md:
+
+- Extended the fail-loud-on-majority-failure pattern (Phase 0 built it into
+  `stocktwits_agent.py` alone) to `fundamentals.py` and
+  `search_reddit_agent.py`, via a new shared `data_fetch_utils.py`. All
+  three data-fetch agents now raise `DataFetchError` through the same
+  helper instead of three separately-evolving implementations.
+- Wired the previously-dead `price_chart` field into the frontend as an
+  inline SVG sparkline, rather than deleting it or leaving it unused.
+- Added a `tests/` suite (pytest) covering the pure scoring/classification/
+  fundamentals functions plus a mocked FastAPI `TestClient` test for
+  `backend.py` — none of it needs network access or a real `GROQ_API_KEY`.
+  Writing these tests surfaced two real, subtle behaviors in the existing
+  logic (an override-rule interaction in `risk_classifier.py`, a dead
+  branch in `sentiment_scorer.compute_composite_score()`) — both
+  characterized with tests and documented in BUGS.md rather than "fixed"
+  silently, since the correct behavior in both cases is a product decision.
+- Made the Groq model id configurable (`config.GROQ_MODEL`, env-overridable)
+  instead of hardcoded in `graph.py`, and made `get_llm_client()` fail fast
+  with a clear message if `GROQ_API_KEY` is missing, instead of failing
+  deep inside a LangGraph node with an opaque SDK error.
+
+Full before/after detail is in [BUGS.md](BUGS.md)'s Phase 1 table.
+
 ## Design notes worth knowing before touching scoring logic
 
 - `config.py` is the single source of truth for tunable constants

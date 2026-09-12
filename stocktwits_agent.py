@@ -35,6 +35,7 @@ import logging
 from typing import Dict, List, Optional
 
 from config import STOCK_UNIVERSE
+from data_fetch_utils import raise_if_too_many_failed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,15 +61,6 @@ REQUEST_HEADERS = {
     ),
     "Accept": "application/json",
 }
-
-# If more than this fraction of the universe returns no data, something is
-# broken upstream (blocked, rate-limited, API change) — fail loudly instead
-# of silently feeding the scorer a universe of fake-neutral signals.
-MAX_FAILURE_RATIO = 0.5
-
-
-class StockTwitsFetchError(RuntimeError):
-    """Raised when StockTwits data collection fails for most of the universe."""
 
 
 # ── SINGLE TICKER FETCH ───────────────────────────────────────────────────────
@@ -319,11 +311,12 @@ def fetch_all_stocktwits(universe: List[str] = STOCK_UNIVERSE) -> Dict[str, dict
         Every ticker in universe is present (empty signal if no data).
 
     Raises:
-        StockTwitsFetchError: if more than MAX_FAILURE_RATIO of the universe
-            returned no data. A zeroed/neutral signal is indistinguishable
-            from genuine neutral sentiment downstream, so silently feeding
-            the scorer a universe of fake-neutral signals (e.g. because
-            StockTwits started blocking us) is worse than crashing loudly.
+        DataFetchError (from data_fetch_utils): if more than
+            MAX_FAILURE_RATIO of the universe returned no data. A
+            zeroed/neutral signal is indistinguishable from genuine neutral
+            sentiment downstream, so silently feeding the scorer a universe
+            of fake-neutral signals (e.g. because StockTwits started
+            blocking us) is worse than crashing loudly.
     """
     results = {}
     failed_tickers = []
@@ -357,13 +350,7 @@ def fetch_all_stocktwits(universe: List[str] = STOCK_UNIVERSE) -> Dict[str, dict
         # Polite delay between calls — don't hammer the API
         time.sleep(TIME_BETWEEN_CALLS)
 
-    failure_ratio = len(failed_tickers) / len(universe) if universe else 0.0
-    if failure_ratio > MAX_FAILURE_RATIO:
-        raise StockTwitsFetchError(
-            f"StockTwits data collection failed for {len(failed_tickers)}/"
-            f"{len(universe)} tickers ({failure_ratio:.0%}): {failed_tickers}. "
-            f"Aborting rather than scoring on fake-neutral data."
-        )
+    raise_if_too_many_failed("StockTwits", failed_tickers, len(universe))
 
     # Summary
     bullish_tickers = [

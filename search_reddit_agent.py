@@ -6,6 +6,7 @@ from typing import Dict, List
 import re
 
 from config import STOCK_UNIVERSE
+from data_fetch_utils import raise_if_too_many_failed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,21 +15,29 @@ def fetch_reddit_sentiment_via_search(universe: List[str] = STOCK_UNIVERSE) -> D
     """
     Simulates the Reddit API by using DuckDuckGo to search public Reddit forums.
     This extracts recent discussions without needing a paid API key.
+
+    Raises:
+        DataFetchError (from data_fetch_utils): if more than
+            MAX_FAILURE_RATIO of the universe raised a search exception.
+            Note this tracks actual search *errors* (DDG blocked/timed out),
+            not tickers that legitimately have zero Reddit mentions — a
+            quiet ticker is a real (if boring) signal, not a failure.
     """
     results = {}
+    failed_tickers = []
     ddgs = DDGS()
-    
+
     for ticker in universe:
         logger.info(f"Searching Reddit for {ticker} via DDG...")
-        
+
         # Build search query targeting r/wallstreetbets and r/stocks
         query = f'"{ticker}" stock site:reddit.com/r/wallstreetbets OR site:reddit.com/r/stocks'
-        
+
         posts = []
         try:
             # Fetch up to 10 recent results
             search_results = list(ddgs.text(query, max_results=10))
-            
+
             for item in search_results:
                 posts.append({
                     "title": item.get("title", ""),
@@ -39,14 +48,15 @@ def fetch_reddit_sentiment_via_search(universe: List[str] = STOCK_UNIVERSE) -> D
                 })
         except Exception as e:
             logger.error(f"Search failed for {ticker}: {e}")
-            
+            failed_tickers.append(ticker)
+
         # Simulate the structured output expected by sentiment_scorer
         mentions = len(posts)
-        
+
         # Simulate momentum based on search result density
         momentum = min(mentions / 5.0, 1.0)
         spike = mentions >= 8
-        
+
         results[ticker] = {
             "ticker":              ticker,
             "total_mentions":      mentions,
@@ -58,8 +68,10 @@ def fetch_reddit_sentiment_via_search(universe: List[str] = STOCK_UNIVERSE) -> D
             "top_posts":           posts[:5],
             "subreddit_breakdown": {"wallstreetbets": mentions, "stocks": 0, "investing": 0},
         }
-        
+
         # Polite delay to prevent rate limits from DDG
         time.sleep(1.5)
-        
+
+    raise_if_too_many_failed("Reddit search (DuckDuckGo)", failed_tickers, len(universe))
+
     return results

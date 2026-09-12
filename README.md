@@ -38,6 +38,11 @@ stocktwits_agent.py  search_reddit_agent.py  fundamentals.py
                 frontend/ (vanilla JS) → renders ranked, tiered ticker cards
 ```
 
+`stocktwits_agent.py`, `search_reddit_agent.py`, and `fundamentals.py` all
+share `data_fetch_utils.py`'s fail-loud guard: if more than half the
+universe fails to fetch, the agent raises instead of silently handing the
+scorer placeholder/neutral data (see [BUGS.md](BUGS.md) #2, #8).
+
 ## Setup
 
 1. **Python 3.12+** and a virtualenv:
@@ -49,6 +54,9 @@ stocktwits_agent.py  search_reddit_agent.py  fundamentals.py
 
 2. **Environment variables** — copy `.env.example` to `.env` and fill in:
    - `GROQ_API_KEY` — required, get one at https://console.groq.com/keys
+   - `GROQ_MODEL` — optional, defaults to `llama-3.1-8b-instant`. Override
+     if Groq deprecates the default (see
+     [CLAUDE.md](CLAUDE.md#known-sharp-edges))
    - `CORS_ORIGINS` — optional, comma-separated list of frontend origins
      allowed to call the API (defaults to `http://localhost:5500,http://127.0.0.1:5500`)
 
@@ -65,10 +73,25 @@ stocktwits_agent.py  search_reddit_agent.py  fundamentals.py
    Reddit search, and fundamentals fetch in parallel; LLM synthesis runs on
    the top 10 tickers only).
 
-## Smoke test
+## Tests
 
-`test_pipeline.py` runs the pipeline directly (no HTTP layer) and prints
-timing + a summary:
+Unit tests + a mocked backend integration test — no live network calls, no
+`GROQ_API_KEY` needed:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Covers the pure scoring/classification/fundamentals functions
+(`sentiment_scorer.py`, `risk_classifier.py`, `fundamentals.py`), the
+shared fail-loud guard (`data_fetch_utils.py`), and `backend.py`'s
+success/failure/CORS behavior via FastAPI's `TestClient`, with the three
+data-fetch agents and `run_sentiment_graph` monkeypatched out.
+
+`test_pipeline.py` is a separate, manual, network-dependent smoke test that
+runs the real pipeline end-to-end (hits live StockTwits/yfinance/
+DuckDuckGo/Groq APIs — needs a real `GROQ_API_KEY`):
 
 ```bash
 python test_pipeline.py
@@ -76,6 +99,8 @@ python test_pipeline.py
 
 ## Known limitations
 
-Tracked in [BUGS.md](BUGS.md). Headline items: no automated tests beyond the
-one smoke script, and only `stocktwits_agent.py` currently fails loudly on
-majority data-fetch failure (fundamentals/Reddit-search do not yet).
+Tracked in [BUGS.md](BUGS.md). Headline items: nothing has exercised the
+real external APIs end-to-end yet in this environment (no `GROQ_API_KEY`
+available), no CI runs `pytest` automatically on push, and two
+characterized-but-unfixed quirks in the override-rule/composite-score logic
+need a product decision before they're worth changing.

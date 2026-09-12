@@ -42,7 +42,7 @@ from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from config import GROQ_API_KEY, TOP_N_FOR_LLM
+from config import GROQ_API_KEY, GROQ_MODEL, TOP_N_FOR_LLM
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -110,20 +110,39 @@ def get_llm_client() -> ChatGroq:
         The raw SDK is more flexible but requires more boilerplate inside
         LangGraph nodes.
 
-    Model: llama-3.1-8b-instant (via Groq)
+    Model: config.GROQ_MODEL (defaults to llama-3.1-8b-instant via Groq)
         Groq's hosted Llama 3.1 8B gives low-latency inference at low cost,
         which matters here because synthesis + evaluation run two LLM calls
         per batch of 3 tickers. A larger hosted model would improve nuance
         on sarcasm detection at the cost of latency and API spend.
+
+        The model id is read from config.GROQ_MODEL (env-overridable) rather
+        than hardcoded here — Groq has deprecated a model this project
+        depended on before (see CONTEXT.md), which broke the pipeline with
+        no warning until a run failed. Swapping models is now a one-line
+        .env change instead of a code change.
 
     temperature=0.3:
         Lower temperature = more deterministic, more factual output.
         We don't want creative hallucinations in financial analysis.
         We want consistent, grounded synthesis.
         0.3 allows some natural language variation without going off-script.
+
+    Raises:
+        RuntimeError: if GROQ_API_KEY isn't set. Without this check, a
+            missing key fails deep inside synthesis_node/evaluation_node
+            with an opaque auth error from the Groq SDK — this surfaces the
+            real problem immediately, at the point the client is created.
     """
+    if not GROQ_API_KEY:
+        raise RuntimeError(
+            "GROQ_API_KEY is not set. Copy .env.example to .env and add "
+            "your key (https://console.groq.com/keys), or set it in your "
+            "environment."
+        )
+
     return ChatGroq(
-        model="llama-3.1-8b-instant",
+        model=GROQ_MODEL,
         api_key=GROQ_API_KEY,
         temperature=0.3,
         max_tokens=2000,   # Enough for full bull/bear case + risk summary

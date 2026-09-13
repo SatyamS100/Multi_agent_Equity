@@ -285,6 +285,17 @@ def compute_composite_score(
 
     Returns:
         Composite score 0-100
+
+    Note on the "no data at all" fallback below: fundamental_confidence is
+    hardcoded to 1.0 ("fundamentals are hard data, always trust them"), and
+    SCORE_WEIGHTS["fundamental_score"] is always > 0, so weight_conf_sum can
+    never actually reach 0 through this function's normal call path — the
+    fallback is effectively unreachable as long as a fundamental_score is
+    supplied. This is intentional, not a latent bug: when reddit/StockTwits
+    confidence are both 0 (no social data at all), the composite
+    deliberately collapses to exactly the fundamental score rather than a
+    flat 50.0 — trusting the one signal we do have (yfinance fundamentals)
+    over an artificial neutral guess. Confirmed and left as-is; see BUGS.md.
     """
     w = SCORE_WEIGHTS
 

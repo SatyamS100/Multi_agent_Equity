@@ -40,10 +40,8 @@
   reddit/StockTwits confidence are both 0, the composite silently collapses
   to exactly the fundamental score instead. See
   `test_composite_score_collapses_to_fundamentals_when_sentiment_confidence_is_zero`
-  in `tests/test_sentiment_scorer.py`. **Still open** — changing the
-  weighting formula affects every score the app produces, so this needs an
-  explicit product decision, unlike the rule-ordering fix above (which the
-  existing rule-1 docstring already implied was the intended behavior).
+  in `tests/test_sentiment_scorer.py`. **Resolved in Phase 3 (kept as-is,
+  by product decision)** — see the table below.
 
 ## Phase 2 — CI & the rule-ordering fix (done, 2026-09-13)
 
@@ -52,17 +50,57 @@
 | 12 | No CI workflow ran `pytest` automatically — tests existed and passed locally (Phase 1) but nothing enforced they kept passing on push/PR. | Added `.github/workflows/tests.yml`: installs `requirements.txt` + `requirements-dev.txt`, runs the import sanity check, then `pytest -v`, on every push/PR to `main`. Deliberately excludes `test_pipeline.py` (needs a real `GROQ_API_KEY` and hits live third-party APIs — not appropriate for CI). |
 | 13 | `risk_classifier.apply_override_rules()` rule 4 could silently undo rule 1's extreme-volatility floor (see above). | Rule 1 is now a hard floor: when it fires, the function returns immediately instead of falling through to rules 2-5. It's the only rule that short-circuits — its own docstring already stated the volatility floor should apply "regardless of composite score," which implicitly meant regardless of fundamentals too. Regression test: `test_rule1_is_a_hard_floor_rule4_cannot_lift_it` in `tests/test_risk_classifier.py` (replaces the Phase 1 characterization test of the same bug). |
 
-## Still open (Phase 3+ candidates)
+## Phase 3 — Live verification (done, 2026-09-13)
 
-- **`compute_composite_score()`'s dead fallback branch** (see above) — still
-  needs a product decision before touching the weighting formula.
-- **Requirements pins were verified to *install and import* cleanly
-  together** (Phase 0) and the pipeline logic is covered by unit +
-  mocked-integration tests running in CI (Phases 1-2), but nothing has
-  exercised the real external APIs end-to-end (StockTwits, yfinance, Groq,
-  DuckDuckGo) — no `GROQ_API_KEY` is available in this environment. Worth a
-  live `python test_pipeline.py` run with a real key before calling this
-  repo production-ready.
+The user supplied a real `GROQ_API_KEY`, unblocking the one item Phase 0-2
+couldn't close: an actual end-to-end run against live StockTwits, yfinance,
+DuckDuckGo, and Groq. It immediately paid for itself — three real,
+previously-invisible bugs surfaced within the first two runs.
+
+**Before touching code:** the key was found pasted into `.env.example`
+(tracked by git) instead of `.env` (gitignored) — a one-file mix-up that
+would have pushed a live credential to GitHub on the next commit. Caught
+via `git diff` before anything was staged; nothing was ever committed or
+pushed. Fixed by moving the key into a newly-created `.env` and restoring
+`.env.example`'s placeholder. No exposure occurred, so no rotation was
+needed, but it's the reason `.env.example` exists as a *template* — never
+edit it with a real value, always copy it to `.env` first.
+
+| # | Issue | Fix |
+|---|-------|-----|
+| 14 | `duckduckgo-search==6.3.7` picks a random TLS/browser-fingerprint preset from a hardcoded 33-entry list on every `DDGS()` construction; several of those presets (including `chrome_100`) are no longer supported by the `primp` version pip resolves today, crashing `search_reddit_agent.py` with `primp.BuilderError: Invalid impersonate: "chrome_100"` roughly 1 run in a handful. Confirmed live: the very first Phase 3 run hit it and the whole pipeline 502'd. | Bumped to `duckduckgo-search==8.1.1`, which fixed this exact issue upstream (now delegates fingerprint choice to `primp` itself via `impersonate="random"` instead of maintaining its own list that goes stale as `primp` evolves). Verified the `DDGS`/`.text()` API surface `search_reddit_agent.py` uses is unchanged, then re-ran the live pipeline — all 24 Reddit searches succeeded. |
+| 15 | Groq deprecated `llama-3.1-8b-instant` — again (third time in this repo's history; see CONTEXT.md). Every synthesis/evaluation call 404'd with `model_not_found`. The pipeline didn't crash (graceful degradation was already in place from before this project's tracked history — failed batches get `llm_analysis: None`), but silently produced zero AI analysis for all 24 tickers while still reporting `status: success`. | Queried `GET https://api.groq.com/openai/v1/models` live to list currently-valid ids, smoke-tested `openai/gpt-oss-20b` with a real call, then set it as `config.GROQ_MODEL`'s new default. Re-ran the live pipeline — synthesis and evaluation both completed with real bull/bear cases rendered in the frontend. |
+| 16 | `graph.py`'s `evaluation_node` fact-checks synthesis output against a "Quantitative Data Available" block that was missing `composite_score` and `sector` — two fields `synthesis_node`'s `ticker_contexts` *does* give the synthesis LLM and explicitly tells it to cite. Result: the evaluator flagged legitimate, data-grounded claims like "composite score of 98.15" as hallucinations on 8-9 of 10 tickers per run, since it had no way to verify a number it was never shown — a systematic false-positive rate, not occasional noise. | Added `composite_score` and `sector` to the evaluator's "Quantitative Data Available" block so it mirrors exactly what synthesis saw. Confirmed live: hallucination-flag rate dropped from 9/10 to 6/10 on the next run, and the remaining flags are for more specific/nuanced claims rather than blanket-flagging near everything. Documented in-code that this block must be kept in sync with `ticker_contexts` going forward. |
+| 17 | `pytest` (bare invocation, no path) was silently discovering and importing root-level `test_pipeline.py` because it matches the default `test_*.py` glob — but that file is a manual smoke script with *unconditional module-level side effects* (`result = run_pipeline()` runs at import time, not inside a test function). Every `pytest` run — locally **and in CI** — was silently executing a real, partial pipeline run (StockTwits + Reddit + fundamentals always; LLM stage too once a real key existed) before collection even finished. This had been happening since Phase 1 and inflated every "pytest took ~40-60s" observation; it only became obvious in Phase 3 once a real `GROQ_API_KEY` made the *full* run complete instead of erroring out early, stretching a 2-4 second test suite to 200-250 seconds. | Added `pytest.ini` with `testpaths = tests`, scoping default discovery to the `tests/` directory only. Verified: collection time dropped from 200+s to ~4s, the suite runs in ~2s, and the earlier unexplained `duckduckgo_search` deprecation warning in pytest's own output (a symptom of the same leak — proof `DDGS()` was really being constructed during test runs) is gone. **This also means every CI run to date (Phase 2's) was doing this too** — the green checkmark was still valid (nothing failed), it was just doing several times more work than intended. |
+| 18 | `sentiment_scorer.compute_composite_score()`'s dead "no data → 50.0" fallback branch (flagged Phase 1-2, needed a product decision). | **Decision: keep as-is.** `fundamental_confidence=1.0` is intentional — fundamentals are hard data (yfinance financials), worth trusting fully even when social sentiment is silent. Clarified the docstring and the corresponding test to state this is confirmed-intentional design, not a latent bug, so a future reader doesn't reopen the question without cause. |
+
+Full live-run evidence (log excerpts, exact hallucination-flag counts,
+model list from the Groq API) is in this session's transcript; the
+summary above is what a future reader needs without re-deriving it.
+
+## Still open (Phase 4+ candidates)
+
+- **`duckduckgo_search` is deprecated upstream in favor of a renamed
+  `ddgs` package** (emits a `RuntimeWarning` on every `DDGS()` call as of
+  8.1.1). The 8.1.1 pin is a real, verified fix for issue #14 above and
+  fine to run on today, but the package will eventually stop receiving
+  updates. Migrating `search_reddit_agent.py` to `ddgs` (constructor/
+  `.text()` API is expected to be near-identical based on the 8.1.1 source)
+  is future work, not urgent.
+- **The evaluator's remaining hallucination flags** (issue #16) still
+  include some defensible-but-arguably-false-positives — e.g. flagging
+  "all 30 StockTwits messages are bullish" as ungrounded when the evaluator
+  was given "StockTwits Bull Ratio: 100%" and only sees 3 sample messages,
+  not all 30, so it can't independently verify the claim even though it's
+  a correct restatement of provided data. Worth a further prompt-engineering
+  pass if evaluator-driven confidence penalties start looking systematically
+  too harsh, but not chased further in Phase 3 to avoid unvalidated
+  whack-a-mole prompt tuning.
 - CI only runs on GitHub's hosted runners for push/PR to `main` — no
   branch-protection rule requires the check to pass before merging (that's
   a repo-settings change, not something a commit can express).
+- `SQ` in `config.STOCK_UNIVERSE` is delisted on Yahoo Finance as of this
+  writing (`fetch_ticker_fundamentals` correctly logs and excludes it —
+  not a bug, `data_fetch_utils`'s 1/24 failure is well under the 50%
+  threshold) but it's dead weight in the universe. Low priority swap for a
+  live ticker next time `config.py` is touched.

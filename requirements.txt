@@ -13,7 +13,7 @@ groq==0.13.1
 # API + Reddit-adjacent search
 fastapi==0.115.6
 uvicorn==0.32.1
-duckduckgo-search==6.3.7
+duckduckgo-search==8.1.1
 
 # Environment + utilities
 python-dotenv==1.0.1

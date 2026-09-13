@@ -54,11 +54,14 @@ scorer placeholder/neutral data (see [BUGS.md](BUGS.md) #2, #8).
    pip install -r requirements.txt
    ```
 
-2. **Environment variables** — copy `.env.example` to `.env` and fill in:
+2. **Environment variables** — copy `.env.example` to `.env` (don't edit
+   `.env.example` itself — it's a tracked template, `.env` is gitignored)
+   and fill in:
    - `GROQ_API_KEY` — required, get one at https://console.groq.com/keys
-   - `GROQ_MODEL` — optional, defaults to `llama-3.1-8b-instant`. Override
-     if Groq deprecates the default (see
-     [CLAUDE.md](CLAUDE.md#known-sharp-edges))
+   - `GROQ_MODEL` — optional, defaults to `openai/gpt-oss-20b`. Override if
+     Groq deprecates the default — it's happened three times in this
+     repo's history (see [CLAUDE.md](CLAUDE.md#known-sharp-edges)); list
+     current model ids at `GET https://api.groq.com/openai/v1/models`
    - `CORS_ORIGINS` — optional, comma-separated list of frontend origins
      allowed to call the API (defaults to `http://localhost:5500,http://127.0.0.1:5500`)
 
@@ -71,9 +74,11 @@ scorer placeholder/neutral data (see [BUGS.md](BUGS.md) #2, #8).
    (e.g. VS Code Live Server on port 5500) and open `index.html`. Opening the
    file directly (`file://`) will not satisfy the CORS origin allowlist.
 
-5. Click **Run Pipeline**. A full run takes roughly 20-40 seconds (StockTwits,
-   Reddit search, and fundamentals fetch in parallel; LLM synthesis runs on
-   the top 10 tickers only).
+5. Click **Run Pipeline**. Data fetch (StockTwits, Reddit search, and
+   fundamentals run in parallel) takes roughly 30-50 seconds; LLM synthesis
+   + evaluation on the top 10 tickers (two Groq calls per batch of 3) adds
+   another 30 seconds to a few minutes depending on Groq's response time —
+   a full run is typically 1-4 minutes end to end (measured live).
 
 ## Tests
 
@@ -99,17 +104,31 @@ DuckDuckGo/Groq APIs — needs a real `GROQ_API_KEY`):
 python test_pipeline.py
 ```
 
+`pytest.ini` restricts `pytest`'s default discovery to `tests/` specifically
+so a bare `pytest` invocation never sweeps up `test_pipeline.py` (its
+filename matches the default glob, but it has unconditional module-level
+side effects that would run a real pipeline call on every test run — this
+happened silently for a while, see [BUGS.md](BUGS.md) Phase 3 #17).
+
 ## CI
 
 `.github/workflows/tests.yml` runs `pytest` on every push/PR to `main`
 (GitHub-hosted Ubuntu runner, no secrets required — it never touches
 `test_pipeline.py` or any live API).
 
+## Verified live
+
+As of Phase 3, this has been run end-to-end against real StockTwits,
+yfinance, DuckDuckGo, and Groq APIs (not just mocked tests) — including a
+real browser click-through of the actual frontend against a real running
+backend. See [BUGS.md](BUGS.md)'s Phase 3 table and
+[CONTEXT.md](CONTEXT.md) for what that run found and fixed.
+
 ## Known limitations
 
-Tracked in [BUGS.md](BUGS.md). Headline items: nothing has exercised the
-real external APIs end-to-end yet in this environment (no `GROQ_API_KEY`
-available), and one characterized-but-unfixed quirk in
-`sentiment_scorer.compute_composite_score()`'s confidence weighting needs a
-product decision before it's worth changing (a related quirk in
-`risk_classifier`'s override rules was fixed in Phase 2 — see BUGS.md).
+Tracked in [BUGS.md](BUGS.md). Headline items: the evaluator's
+hallucination-flag rate still has some defensible-but-arguably-strict false
+positives worth a future prompt-tuning pass, `duckduckgo-search` is
+deprecated upstream in favor of a renamed `ddgs` package (migration not
+done yet), and CI has no branch-protection rule requiring it to pass before
+merge (a repo-settings change, not a commit).

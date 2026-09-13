@@ -108,14 +108,13 @@ def test_normalise_volatility_brackets():
 # ── compute_composite_score ──────────────────────────────────────────────────
 
 def test_composite_score_collapses_to_fundamentals_when_sentiment_confidence_is_zero():
-    # fundamental_confidence is hardcoded to 1.0 inside compute_composite_score
-    # ("Fundamentals are hard data, always trust them") — so when reddit and
-    # StockTwits confidence are both 0, the sentiment/momentum/spike terms
-    # contribute zero weight and the composite collapses to exactly the
-    # fundamental score. Worth pinning down explicitly: it means
-    # weight_conf_sum can never actually be 0 as long as fundamental_score
-    # is supplied, so the "no data at all -> 50.0" branch in
-    # compute_composite_score is effectively unreachable via this signature.
+    # Confirmed intentional design (see compute_composite_score's docstring
+    # and BUGS.md): fundamental_confidence is hardcoded to 1.0, so when
+    # reddit and StockTwits confidence are both 0, the sentiment/momentum/
+    # spike terms contribute zero weight and the composite deliberately
+    # collapses to exactly the fundamental score rather than a flat 50.0 —
+    # trusting the one real signal (yfinance fundamentals) over an
+    # artificial neutral guess when there's no social data at all.
     score = compute_composite_score(
         reddit_score=0.9, reddit_confidence=0.0,
         stocktwits_score=0.9, st_confidence=0.0,

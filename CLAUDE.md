@@ -63,16 +63,46 @@ serve it with any static file server; it calls the backend at
   StockTwits fetches start silently failing again, check
   `stocktwits_agent.REQUEST_HEADERS` first before assuming it's a rate
   limit or API change.
-- **Groq deprecates model names without much notice** — this has already
-  broken the pipeline once (see CONTEXT.md). The model id is
-  `config.GROQ_MODEL` (env-overridable via `GROQ_MODEL` in `.env`, defaults
-  to `llama-3.1-8b-instant`), read by `graph.py:get_llm_client()`. If
-  synthesis/evaluation start failing with an API error mentioning the
-  model, set `GROQ_MODEL` in `.env` rather than editing `graph.py` — check
-  https://console.groq.com/docs/models for current valid ids.
-  `get_llm_client()` also raises immediately if `GROQ_API_KEY` is unset,
-  rather than failing deep inside a node — if you add a new entry point
-  that calls it, don't swallow that exception silently.
+- **Groq deprecates model names without much notice** — three times in this
+  repo's history now (see CONTEXT.md), most recently `llama-3.1-8b-instant`
+  itself, replaced with `openai/gpt-oss-20b` in Phase 3. The model id is
+  `config.GROQ_MODEL` (env-overridable via `GROQ_MODEL` in `.env`). If
+  synthesis/evaluation start 404ing with `model_not_found`, don't guess a
+  replacement — query `GET https://api.groq.com/openai/v1/models` with
+  `Authorization: Bearer $GROQ_API_KEY` to list currently-valid ids, and
+  smoke-test a candidate with a real `.invoke()` call before committing to
+  it as the new default. `get_llm_client()` also raises immediately if
+  `GROQ_API_KEY` is unset, rather than failing deep inside a node — if you
+  add a new entry point that calls it, don't swallow that exception
+  silently.
+- **`graph.py`'s synthesis and evaluation prompts must stay in sync.**
+  `synthesis_node`'s `ticker_contexts` block is what data the LLM is told
+  it may cite; `evaluation_node`'s "Quantitative Data Available" block is
+  what the fact-checker is allowed to verify claims against. A Phase 3 live
+  run found these had drifted (evaluator missing `composite_score` and
+  `sector`), causing the evaluator to flag correct, data-grounded claims as
+  hallucinations on 8-9 of 10 tickers per run — not occasional noise, a
+  systematic false-positive rate. If you add a field to one prompt's
+  context, add it to the other, or run a live test to check for a spike in
+  `hallucination_flag: true` results.
+- **`duckduckgo-search` (imported as `duckduckgo_search`, used by
+  `search_reddit_agent.py`) is pinned to `8.1.1`, not the latest.** 6.3.7
+  crashed intermittently (`primp.BuilderError: Invalid impersonate:
+  "chrome_100"`) because it randomly picks a browser-fingerprint preset per
+  `DDGS()` call from a hardcoded list that goes stale as `primp` evolves;
+  8.1.1 fixed this upstream. The package is itself deprecated in favor of a
+  renamed `ddgs` package (emits a `RuntimeWarning` on every call) — that
+  migration is documented as future work in BUGS.md, not done yet.
+- **`pytest` (bare invocation) only discovers `tests/`** — see
+  `pytest.ini`. Root-level `test_pipeline.py` matches pytest's default
+  `test_*.py` glob but has unconditional module-level side effects (runs
+  the real pipeline at import time); without the `testpaths` restriction,
+  every `pytest` run silently executed a real, partial pipeline run before
+  collection even finished — this happened undetected from Phase 1 through
+  Phase 2, including in CI. Don't add new root-level `test_*.py`/`*_test.py`
+  files expecting them to be picked up automatically; put tests in
+  `tests/`, or if a script genuinely needs a name matching that glob,
+  double-check `pytest --collect-only` doesn't sweep it in.
 - **CORS is an explicit origin allowlist** (`config.CORS_ORIGINS`, env var
   `CORS_ORIGINS`), not `"*"`. If the frontend can't reach the backend from
   a new dev-server port, add that origin rather than widening to `"*"` —
@@ -92,10 +122,19 @@ serve it with any static file server; it calls the backend at
   assume the current fall-through ordering of rules 2-5 is load-bearing —
   it isn't, by design.
 - **`sentiment_scorer.compute_composite_score()`'s `fundamental_confidence`
-  is hardcoded to `1.0`**, which means the composite score can never
-  actually be "no data at all → 50.0" through the normal call path — see
-  BUGS.md. If you touch this function's confidence weighting, re-read that
-  entry first.
+  is hardcoded to `1.0`** — confirmed intentional as of Phase 3 (see
+  BUGS.md), not a latent bug. It means the composite score can never
+  actually be "no data at all → 50.0" through the normal call path; when
+  social confidence is 0, the composite deliberately collapses to exactly
+  the fundamental score instead. If you want to change this, it's a
+  scoring-formula change affecting every ticker — treat it as a product
+  decision, not a drive-by fix.
+- **`.env.example` is a template, never a place for a real value.** A real
+  `GROQ_API_KEY` ended up there once (Phase 3) instead of in `.env` — one
+  file-name mix-up away from pushing a live credential, caught before any
+  commit. `.env.example` is tracked by git; `.env` is gitignored. If you
+  ever see a non-empty secret in `.env.example`, stop and fix it before
+  doing anything else — don't commit past it.
 
 ## Before considering a change done
 
@@ -114,3 +153,7 @@ serve it with any static file server; it calls the backend at
   only strings that originate from the server/LLM do.
 - If you touched a pure function covered by `tests/`, update the test in
   the same change — don't leave it asserting the old behavior.
+- If `pytest` (no args) suddenly takes way longer than ~2-3 seconds or
+  spits out a `duckduckgo_search`/`primp` warning, something is importing
+  `test_pipeline.py` again — check `pytest.ini`'s `testpaths` is still in
+  effect before assuming it's a real regression.

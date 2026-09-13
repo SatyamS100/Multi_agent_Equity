@@ -19,10 +19,14 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Groq model id used for synthesis + evaluation (see graph.py). Kept
 # env-overridable rather than hardcoded in graph.py: Groq has deprecated a
-# model this project depended on before (see CONTEXT.md) — when that
-# happens again, swapping GROQ_MODEL in .env is a config change, not a
-# code change. Current default: https://console.groq.com/docs/models
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+# model this project depended on before — twice now, see CONTEXT.md/BUGS.md
+# Phase 3 — when it happens again, swapping GROQ_MODEL in .env is a config
+# change, not a code change. The previous default (llama-3.1-8b-instant)
+# was removed from Groq's lineup entirely (404 model_not_found) as of the
+# Phase 3 live verification run. Current default confirmed live against
+# https://api.groq.com/openai/v1/models on 2026-09-13 — re-check that list
+# if this one goes stale too.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
 # Comma-separated list of origins allowed to call the backend API.

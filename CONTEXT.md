@@ -24,12 +24,17 @@ prep material for its author.
    see `config.py:STOCK_UNIVERSE`).
 4. **`8137de4`** — The original LLM provider was Anthropic Claude
    (`langchain-anthropic`, model names like Sonnet). The project was
-   migrated to Groq (`langchain-groq`, `llama-3.1-8b-instant`) via a
-   find-and-replace script (`replace_claude.py`), then that model itself
-   got decommissioned by Groq and was swapped to `llama-3.1-8b-instant`.
-   This left behind stale comments referring to Claude model tiers
-   (Sonnet/Haiku/Opus) and one factual error (attributing "Constitutional
-   AI" to Groq instead of Anthropic) — cleaned up in the Phase 0 pass below.
+   migrated to Groq (`langchain-groq`) via a find-and-replace script
+   (`replace_claude.py`), landing on `llama-3.1-8b-instant`, which had
+   *already* been swapped in once before this commit after an earlier Groq
+   model deprecation. This left behind stale comments referring to Claude
+   model tiers (Sonnet/Haiku/Opus) and one factual error (attributing
+   "Constitutional AI" to Groq instead of Anthropic) — cleaned up in the
+   Phase 0 pass below. `llama-3.1-8b-instant` itself was later removed from
+   Groq's lineup entirely and had to be replaced again in Phase 3 — see
+   below. Three Groq-model-deprecation incidents in this repo's history so
+   far is why `config.GROQ_MODEL` exists as an env-overridable setting
+   rather than a hardcoded string.
 
 ## Phase 0 cleanup (this session, 2026-09-12)
 
@@ -97,6 +102,72 @@ product decision on the confidence-weighting formula itself.
 
 Full before/after detail is in [BUGS.md](BUGS.md)'s Phase 2 table.
 
+## Phase 3 — live verification (this session, 2026-09-13)
+
+The user supplied a real `GROQ_API_KEY`, unblocking the one Phase 0-2 item
+that needed one: an actual end-to-end run against live StockTwits,
+yfinance, DuckDuckGo, and Groq. This phase was less about planned work and
+more about what the live run immediately surfaced — a good reminder that
+"tests pass" and "the real thing works" are different claims.
+
+**Near-miss before any code changed:** the API key arrived pasted into
+`.env.example` (a tracked file) instead of `.env` (gitignored). Caught via
+`git diff` before staging anything — nothing was ever committed or pushed,
+so no exposure occurred and no rotation was needed. Fixed by creating
+`.env` with the real key and restoring `.env.example`'s placeholder. Take-
+away: `.env.example` is a *template*, not a place to paste real secrets,
+even temporarily.
+
+**What the live run found** (full detail in [BUGS.md](BUGS.md)'s Phase 3
+table):
+
+1. StockTwits (Phase 0's header fix) and fundamentals both worked
+   perfectly against live data — 24/24 and 23/24 tickers respectively (the
+   one fundamentals miss, `SQ`, is genuinely delisted on Yahoo Finance, not
+   a bug).
+2. Reddit search crashed outright: `duckduckgo-search==6.3.7` picks a
+   random browser-fingerprint preset per `DDGS()` call from a hardcoded
+   list, and the `primp` version pip resolves today no longer supports
+   several of those presets. Fixed by bumping to `duckduckgo-search==8.1.1`
+   (which fixed this exact problem upstream).
+3. Groq had deprecated `llama-3.1-8b-instant` — the *third* such incident
+   in this repo's history (see the History section above). Every LLM call
+   404'd; the pipeline degraded gracefully (as designed) but silently
+   produced zero AI analysis for all 24 tickers while still reporting
+   success. Fixed by querying Groq's live `/v1/models` endpoint, smoke-
+   testing a candidate, and setting `openai/gpt-oss-20b` as the new
+   `config.GROQ_MODEL` default.
+4. With synthesis actually running, the evaluator (`evaluation_node`) was
+   flagging 8-9 of every 10 tickers as "hallucinating" — its fact-check
+   prompt was missing two fields (`composite_score`, `sector`) that the
+   synthesis prompt *does* give the LLM and tells it to cite, so the
+   evaluator had no way to verify claims it was never shown. Fixed by
+   syncing the two prompts' data blocks; flag rate dropped to 6/10 with the
+   remainder being more defensible edge cases (documented, not chased
+   further).
+5. `pytest` (bare invocation) had been silently importing and executing
+   root-level `test_pipeline.py` — a manual script with unconditional
+   module-level side effects — on every single run since Phase 1,
+   **including in CI**, because the filename matches the default test
+   discovery glob. This had been quietly inflating every "pytest run"
+   timing since Phase 1; it only became obvious once a real API key made
+   the accidental full pipeline run actually complete (200+ seconds)
+   instead of erroring out early. Fixed with `pytest.ini`
+   (`testpaths = tests`) — collection now takes ~4s, the suite runs in ~2s.
+6. The `compute_composite_score()` product decision left open since Phase
+   1 was resolved: keep `fundamental_confidence` hardcoded to `1.0`
+   (trust fundamentals fully even with zero social signal). Docstring and
+   test updated to state this is confirmed-intentional, not revisit-later.
+
+**Verified, not just claimed:** re-ran the live pipeline after each fix
+until it produced real, grounded LLM bull/bear cases, then drove the
+actual running app (real `uvicorn` backend + static frontend, no mocks)
+through a real browser click of "Run Pipeline" and confirmed the rendered
+UI — sparklines, tier badges, LLM synthesis text — matched the API
+response.
+
+Full before/after detail is in [BUGS.md](BUGS.md)'s Phase 3 table.
+
 ## Design notes worth knowing before touching scoring logic
 
 - `config.py` is the single source of truth for tunable constants
@@ -112,3 +183,11 @@ Full before/after detail is in [BUGS.md](BUGS.md)'s Phase 2 table.
   tier (e.g. extreme volatility always forces Speculative regardless of
   score, and — as of Phase 2 — no later rule can lift it back out) — these
   encode domain knowledge the raw composite score can't.
+- `compute_composite_score()`'s `fundamental_confidence` is deliberately
+  hardcoded to `1.0` — confirmed-intentional as of Phase 3, not something
+  to "fix." Fundamentals are trusted fully even with zero social signal.
+- `graph.py`'s `synthesis_node` (what data the LLM sees) and
+  `evaluation_node` (what data the fact-checker sees) must stay in sync —
+  see BUGS.md Phase 3 #16. If you add a field to one prompt's context
+  block, add it to the other too, or the evaluator will flag correct
+  claims as hallucinations.

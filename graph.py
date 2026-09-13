@@ -110,17 +110,20 @@ def get_llm_client() -> ChatGroq:
         The raw SDK is more flexible but requires more boilerplate inside
         LangGraph nodes.
 
-    Model: config.GROQ_MODEL (defaults to llama-3.1-8b-instant via Groq)
-        Groq's hosted Llama 3.1 8B gives low-latency inference at low cost,
+    Model: config.GROQ_MODEL (defaults to openai/gpt-oss-20b via Groq)
+        A mid-tier hosted model chosen for low-latency, low-cost inference,
         which matters here because synthesis + evaluation run two LLM calls
         per batch of 3 tickers. A larger hosted model would improve nuance
         on sarcasm detection at the cost of latency and API spend.
 
         The model id is read from config.GROQ_MODEL (env-overridable) rather
         than hardcoded here — Groq has deprecated a model this project
-        depended on before (see CONTEXT.md), which broke the pipeline with
-        no warning until a run failed. Swapping models is now a one-line
-        .env change instead of a code change.
+        depended on before, twice (see CONTEXT.md/BUGS.md Phase 3), which
+        broke the pipeline with no warning until a run failed each time.
+        Swapping models is now a one-line .env change instead of a code
+        change. If this default 404s too, list current model ids with:
+            GET https://api.groq.com/openai/v1/models
+            (Authorization: Bearer $GROQ_API_KEY)
 
     temperature=0.3:
         Lower temperature = more deterministic, more factual output.
@@ -466,6 +469,18 @@ def evaluation_node(state: SentimentGraphState) -> dict:
         # ── BUILD EVALUATION PROMPT ───────────────────────────────────────────
         # Give evaluator: the source posts + what LLM claimed
         # Ask: which claims are grounded, which are not?
+        #
+        # The "Quantitative Data Available" block below must mirror every
+        # field synthesis_node's ticker_contexts gives the synthesis LLM
+        # (composite score, RSI, momentum, volatility, StockTwits bull
+        # ratio, fundamental score, sector). A Phase 3 live run found this
+        # had drifted — composite_score and sector were missing here even
+        # though synthesis is told to cite them — so the evaluator flagged
+        # nearly every legitimate "composite score of X" reference as an
+        # ungrounded hallucination, tanking confidence scores across the
+        # board on data the synthesis LLM was correctly given permission to
+        # use. If you add a new field to synthesis_node's ticker_contexts,
+        # add it here too.
 
         source_posts = "\n".join([
             f"- [{p.get('subreddit','?')}] {p.get('title','')} {p.get('text','')[:200]}"
@@ -495,11 +510,13 @@ StockTwits Messages:
 {source_msgs if source_msgs else "None available"}
 
 Quantitative Data Available:
+- Composite Score: {ticker_data.get('composite_score')}/100
 - RSI: {ticker_data.get('rsi')}
 - 30d Momentum: {ticker_data.get('momentum_30d')}
 - Volatility: {ticker_data.get('volatility')}
 - StockTwits Bull Ratio: {ticker_data.get('st_bull_ratio')}
 - Fundamental Score: {ticker_data.get('fundamental_score')}
+- Sector: {ticker_data.get('sector')}
 
 ANALYSIS TO VERIFY:
 Bull Case: {bull_case}

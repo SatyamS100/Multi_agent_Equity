@@ -119,4 +119,12 @@ CONTEXT.md's Phase 4 section for the full narrative.
   a GitHub repo-settings change (Settings → Branches → branch protection
   rules, or `gh api repos/{owner}/{repo}/branches/main/protection`), not
   something a commit can express — needs repo-admin action, done
-  deliberately rather than as a drive-by from an agent session.
+  deliberately rather than as a drive-by from an agent session. **Attempted
+  in Phase 4** via `gh api .../branches/main/protection -X PUT` — failed
+  with `404 Not Found` because the authenticated account has `push` but not
+  `admin` on this repo (confirmed via `gh api repos/{owner}/{repo} --jq
+  .permissions`, which returned `"admin": false`). GitHub's branch-
+  protection endpoint requires repo-admin, and returns 404 rather than 403
+  when the caller lacks it. Needs either the repo owner to grant that
+  account admin, or the owner to configure it directly via Settings →
+  Branches → Add rule, requiring the `pytest` check on `main`.

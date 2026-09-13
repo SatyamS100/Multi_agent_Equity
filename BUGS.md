@@ -103,17 +103,65 @@ risk-tier overrides fired correctly (`PLTR`/`MSTR`/`RBLX` → Speculative on
 extreme volatility, `HOOD` → Aggressive on contradictory sentiment) — see
 CONTEXT.md's Phase 4 section for the full narrative.
 
-## Still open (Phase 5+ candidates)
+## Phase 5 — Reddit-search reliability investigation (done, 2026-09-13)
 
-- **The evaluator's remaining hallucination flags** (issue #16) still
-  include some defensible-but-arguably-false-positives — e.g. flagging
-  "all 30 StockTwits messages are bullish" as ungrounded when the evaluator
-  was given "StockTwits Bull Ratio: 100%" and only sees 3 sample messages,
-  not all 30, so it can't independently verify the claim even though it's
-  a correct restatement of provided data. Worth a further prompt-engineering
-  pass if evaluator-driven confidence penalties start looking systematically
-  too harsh, but not chased further to avoid unvalidated whack-a-mole
-  prompt tuning without fresh live-run evidence.
+Went in planning to gather fresh live-run evidence on the evaluator
+hallucination-flag rate (Still-open item from Phase 4). Never got that far:
+the first live run aborted at the Reddit-search stage before reaching
+synthesis/evaluation, surfacing a more urgent regression instead. Also
+re-checked the branch-protection blocker — no change.
+
+| # | Issue | Fix |
+|---|-------|-----|
+| 22 | GitHub branch-protection on `main` (Phase 4's item) — re-checked whether repo-admin access had changed. | Still blocked: `gh api repos/{owner}/{repo} --jq .permissions` returns the same `"admin": false` as Phase 4. No action possible without the repo owner granting admin or configuring the rule directly via Settings → Branches. Not re-attempted against the branch-protection endpoint itself since nothing upstream changed. |
+| 23 | **A live run found `search_reddit_agent.py`'s DuckDuckGo-backed search failing for 24/24 tickers (100%)** — a sharp jump from Phase 4's 4/24 (17%), which had been attributed to "DuckDuckGo's own occasional soft-throttle." Root-caused via direct `ddgs` testing (isolated from the rest of the pipeline): `backend="duckduckgo"` (the Phase 4 fix for issue #21) still returns the correct API shape, but `html.duckduckgo.com` is now returning an HTTP 202 "soft throttle" response for the large majority of requests instead of occasionally. Ruled out as *not* query-syntax, session-reuse, or concurrency-related: a standalone run (no `ThreadPoolExecutor`, no other agents running) still failed 21/24 (88%); varying delay (1.5s → 5s) and constructing a fresh `DDGS()` per call didn't reliably help; retrying the identical query 3x with backoff recovered only 1 of 8 throttled tickers, meaning the throttle is a sustained block for at least tens of seconds, not an independent per-request coin-flip. | Added a bounded retry (`RETRY_ATTEMPTS = 3`, `RETRY_BACKOFF_SECONDS = 4`) around the `ddgs.text()` call in `search_reddit_agent.py` as standard resilience against transient failures — cheap, harmless, and it did recover isolated cases in testing. **This is explicitly not a fix for the underlying throttle**: a second live run with the retry in place still failed 23/24 (96%). Deliberately did not pursue further mitigations (proxy rotation, additional header/fingerprint spoofing, CAPTCHA handling) — those cross from "resilience" into circumventing an anti-scraping control, which is out of scope for this session regardless of intent. Documented as a "Still open" architectural question below rather than force-fixed. |
+
+**Verified, not just claimed:** two independent full 24-ticker live pipeline
+runs (before and after the retry change) both aborted at the Reddit-search
+`raise_if_too_many_failed` guard, confirming the guard itself is working
+exactly as designed — it correctly refused to score on nearly-empty Reddit
+data rather than silently proceeding. Direct, isolated `ddgs` calls (outside
+the pipeline, outside `ThreadPoolExecutor`) were used to rule out
+concurrency and query-syntax as root causes before concluding this is an
+upstream throttle. Consequence: the Phase 4 "Still open" item about
+evaluator hallucination flags could not be re-tested this session — the
+pipeline never reaches synthesis/evaluation while Reddit-search aborts
+first. It remains open, now explicitly blocked on issue #23 rather than
+just "needs a run."
+
+## Still open (Phase 6+ candidates)
+
+- **`search_reddit_agent.py`'s DuckDuckGo-search data source is now
+  unreliable to the point of near-total failure** (issue #23) — two
+  consecutive live runs failed 100% and 96% of the universe. This is a
+  product/architecture decision, not a drive-by fix: the project's own
+  history (see CONTEXT.md) shows Reddit was deliberately moved from the
+  official PRAW API to DuckDuckGo search specifically to avoid needing
+  Reddit API credentials; that tradeoff has now flipped. Candidate
+  directions for a future phase: (a) revert to PRAW with real Reddit API
+  credentials, trading "no credentials needed" for reliability; (b) make
+  Reddit-search failure degrade gracefully (redistribute `SCORE_WEIGHTS` to
+  StockTwits + fundamentals only) instead of hard-aborting the whole
+  pipeline — but this would relax the "fail loud on majority data-fetch
+  failure" design principle (CLAUDE.md) that Phase 0-1 deliberately built
+  in, so needs explicit sign-off, not a silent change; (c) accept it as a
+  known limitation of a free/unauthenticated data source and rely on the
+  mocked `pytest` suite (unaffected — it doesn't hit real DDG) as the
+  day-to-day correctness contract instead of expecting live runs to
+  reliably complete. Do not pursue proxy rotation, additional
+  fingerprint/header spoofing, or CAPTCHA handling to push through the
+  throttle harder — that crosses from resilience into circumventing an
+  anti-scraping control.
+- **The evaluator's remaining hallucination flags** (issue #16) — Phase 4's
+  fresh-evidence item is now also blocked by issue #23: the pipeline never
+  reaches `evaluation_node` while Reddit-search aborts first, so no new
+  flag-rate data could be gathered this session. Still open: some
+  defensible-but-arguably-false-positives (e.g. flagging "all 30 StockTwits
+  messages are bullish" as ungrounded when the evaluator only sees 3 sample
+  messages) were characterized in Phase 3-4. Worth a further
+  prompt-engineering pass once a live run can actually complete and supply
+  fresh evidence — not chased further without it, to avoid unvalidated
+  whack-a-mole prompt tuning.
 - CI only runs on GitHub's hosted runners for push/PR to `main` — no
   branch-protection rule requires the check to pass before merging. This is
   a GitHub repo-settings change (Settings → Branches → branch protection
@@ -123,8 +171,9 @@ CONTEXT.md's Phase 4 section for the full narrative.
   in Phase 4** via `gh api .../branches/main/protection -X PUT` — failed
   with `404 Not Found` because the authenticated account has `push` but not
   `admin` on this repo (confirmed via `gh api repos/{owner}/{repo} --jq
-  .permissions`, which returned `"admin": false`). GitHub's branch-
-  protection endpoint requires repo-admin, and returns 404 rather than 403
-  when the caller lacks it. Needs either the repo owner to grant that
-  account admin, or the owner to configure it directly via Settings →
+  .permissions`, which returned `"admin": false`). **Re-checked in Phase
+  5** — permissions unchanged, still `"admin": false`. GitHub's
+  branch-protection endpoint requires repo-admin, and returns 404 rather
+  than 403 when the caller lacks it. Needs either the repo owner to grant
+  that account admin, or the owner to configure it directly via Settings →
   Branches → Add rule, requiring the `pytest` check on `main`.

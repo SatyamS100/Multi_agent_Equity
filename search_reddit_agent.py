@@ -11,6 +11,12 @@ from data_fetch_utils import raise_if_too_many_failed
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# How many times to retry a single ticker's search before counting it as
+# failed, and how long to wait between retries. See the retry loop below for
+# why this exists (DuckDuckGo soft-throttle, not a hard per-query block).
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 4
+
 def fetch_reddit_sentiment_via_search(universe: List[str] = STOCK_UNIVERSE) -> Dict[str, dict]:
     """
     Simulates the Reddit API by using DuckDuckGo to search public Reddit forums.
@@ -34,16 +40,40 @@ def fetch_reddit_sentiment_via_search(universe: List[str] = STOCK_UNIVERSE) -> D
         query = f'"{ticker}" stock site:reddit.com/r/wallstreetbets OR site:reddit.com/r/stocks'
 
         posts = []
-        try:
-            # Fetch up to 10 recent results. backend="duckduckgo" pins this
-            # to DuckDuckGo's own endpoint only — ddgs's default
-            # backend="auto" fans a single call out to ~8 engines (Google,
-            # Brave, Mojeek, Yahoo, etc.) in parallel, which multiplies our
-            # request volume ~8x across a 24-ticker loop and gets several of
-            # those engines rate-limiting (429/403) well before DuckDuckGo
-            # itself would.
-            search_results = list(ddgs.text(query, max_results=10, backend="duckduckgo"))
+        search_results = None
 
+        # DuckDuckGo's html.duckduckgo.com endpoint (ddgs's "duckduckgo"
+        # backend) intermittently soft-throttles with a 202 response that
+        # ddgs surfaces as "No results found." — a Phase 5 live run found
+        # this had gotten much more frequent than the "occasional" rate
+        # documented in Phase 4, and confirmed via direct testing that the
+        # throttle is transient (retrying the *same* query after a short
+        # wait can succeed) rather than a hard per-query block. A bounded
+        # retry recovers some — not all — of these; it's not a fix for the
+        # underlying throttle, just standard resilience against a flaky
+        # upstream.
+        for attempt in range(RETRY_ATTEMPTS):
+            try:
+                # backend="duckduckgo" pins this to DuckDuckGo's own endpoint
+                # only — ddgs's default backend="auto" fans a single call out
+                # to ~8 engines (Google, Brave, Mojeek, Yahoo, etc.) in
+                # parallel, which multiplies our request volume ~8x across a
+                # 24-ticker loop and gets several of those engines
+                # rate-limiting (429/403) well before DuckDuckGo itself would.
+                search_results = list(ddgs.text(query, max_results=10, backend="duckduckgo"))
+                break
+            except Exception as e:
+                if attempt < RETRY_ATTEMPTS - 1:
+                    logger.warning(
+                        f"Search attempt {attempt + 1}/{RETRY_ATTEMPTS} failed "
+                        f"for {ticker}: {e}. Retrying in {RETRY_BACKOFF_SECONDS}s..."
+                    )
+                    time.sleep(RETRY_BACKOFF_SECONDS)
+                else:
+                    logger.error(f"Search failed for {ticker}: {e}")
+                    failed_tickers.append(ticker)
+
+        if search_results:
             for item in search_results:
                 posts.append({
                     "title": item.get("title", ""),
@@ -52,9 +82,6 @@ def fetch_reddit_sentiment_via_search(universe: List[str] = STOCK_UNIVERSE) -> D
                     "score": 100, # Mock score since search engines don't provide upvotes
                     "subreddit": "wallstreetbets" if "wallstreetbets" in item.get("href", "") else "stocks"
                 })
-        except Exception as e:
-            logger.error(f"Search failed for {ticker}: {e}")
-            failed_tickers.append(ticker)
 
         # Simulate the structured output expected by sentiment_scorer
         mentions = len(posts)

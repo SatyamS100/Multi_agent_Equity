@@ -218,6 +218,70 @@ documented pattern) and GitHub branch-protection on `main` (a repo-settings
 action outside what a commit can express — see BUGS.md's "Still open"
 section).
 
+## Phase 5 — Reddit-search reliability investigation (this session, 2026-09-13)
+
+Planned to gather fresh live-run evidence on the evaluator hallucination-flag
+rate — Phase 4's "still open" item. The first live run of this phase never
+got that far: it aborted at the Reddit-search stage, surfacing a more urgent
+regression than the one being investigated. This phase is a good example of
+"tests pass" and "the real thing works" diverging again — the same lesson
+Phase 3 learned, this time about an external dependency's behavior rather
+than this repo's own code.
+
+- Re-checked the Phase 4 branch-protection blocker first (cheap, no live
+  pipeline needed): `gh api repos/{owner}/{repo} --jq .permissions` still
+  returns `"admin": false` for this account. No change possible without
+  repo-owner action; not re-attempted against the branch-protection endpoint
+  itself since nothing upstream changed.
+- Kicked off a live pipeline run to gather the evaluator evidence. It failed
+  immediately: **Reddit search failed for 24/24 tickers (100%)**, a sharp
+  jump from Phase 4's 4/24 (17%, attributed then to "DuckDuckGo's own
+  occasional soft-throttle"). Investigated directly against `ddgs`, isolated
+  from the rest of the pipeline, before touching any code:
+  - A standalone call to `fetch_reddit_sentiment_via_search()` (no
+    `ThreadPoolExecutor`, no concurrent StockTwits/fundamentals traffic)
+    still failed 21/24 (88%) — ruling out concurrency as the cause.
+  - Varying the delay between calls (1.5s → 5s) and constructing a fresh
+    `DDGS()` instance per call instead of reusing one didn't reliably help —
+    ruling out session-reuse and pacing as the cause.
+  - Retrying the *identical* query up to 3 times with a 3-4s backoff
+    recovered only 1 of 8 throttled tickers — meaning DuckDuckGo's
+    `html.duckduckgo.com` endpoint (surfaced via an HTTP 202 response) is
+    holding a sustained soft-block for tens of seconds at a time, not
+    independently coin-flipping per request.
+  - Conclusion: this is a real tightening of DuckDuckGo's anti-scraping
+    posture since Phase 4 (same day), not a bug introduced by this repo's
+    code, and not fixable by client-side request tuning alone.
+- Added a bounded retry (`RETRY_ATTEMPTS = 3`, `RETRY_BACKOFF_SECONDS = 4`)
+  around the search call in `search_reddit_agent.py` — standard resilience
+  practice, harmless, and it did recover isolated cases during
+  investigation. Re-ran the full live pipeline to verify: **23/24 (96%)
+  still failed** — confirming the retry is not a fix for the underlying
+  throttle, just a minor mitigation. Deliberately stopped here rather than
+  escalating to proxy rotation, additional fingerprint/header spoofing, or
+  CAPTCHA handling — those would cross from "resilience" into circumventing
+  an anti-scraping control, out of scope regardless of the project's benign
+  intent.
+
+**Verified, not just claimed:** two independent full 24-ticker live runs
+(before and after the retry change) both hit `raise_if_too_many_failed`'s
+guard exactly as designed — it correctly aborted rather than silently
+scoring on near-empty Reddit data. The root-cause investigation used direct,
+isolated `ddgs` calls to rule out concurrency and query-syntax before
+concluding the problem is upstream, rather than guessing from the pipeline's
+aggregate error alone.
+
+**Consequence for the original goal of this phase:** the evaluator
+hallucination-flag evidence could not be gathered — the pipeline never
+reaches `synthesis_node`/`evaluation_node` while Reddit-search aborts first.
+That item remains open, now explicitly blocked on the Reddit-search issue
+rather than just "needs a run." Full detail in [BUGS.md](BUGS.md)'s Phase 5
+table and updated "Still open" section, which now includes an architectural
+question for Phase 6: revert to the official (credentialed) Reddit API,
+make Reddit-search failure degrade gracefully instead of hard-aborting the
+pipeline, or accept the live-run flakiness as a known limitation of a
+free/unauthenticated data source.
+
 ## Design notes worth knowing before touching scoring logic
 
 - `config.py` is the single source of truth for tunable constants

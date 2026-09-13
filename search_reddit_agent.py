@@ -1,6 +1,6 @@
 import logging
 import time
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from collections import defaultdict
 from typing import Dict, List
 import re
@@ -35,8 +35,14 @@ def fetch_reddit_sentiment_via_search(universe: List[str] = STOCK_UNIVERSE) -> D
 
         posts = []
         try:
-            # Fetch up to 10 recent results
-            search_results = list(ddgs.text(query, max_results=10))
+            # Fetch up to 10 recent results. backend="duckduckgo" pins this
+            # to DuckDuckGo's own endpoint only — ddgs's default
+            # backend="auto" fans a single call out to ~8 engines (Google,
+            # Brave, Mojeek, Yahoo, etc.) in parallel, which multiplies our
+            # request volume ~8x across a 24-ticker loop and gets several of
+            # those engines rate-limiting (429/403) well before DuckDuckGo
+            # itself would.
+            search_results = list(ddgs.text(query, max_results=10, backend="duckduckgo"))
 
             for item in search_results:
                 posts.append({

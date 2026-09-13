@@ -128,7 +128,6 @@ backend. See [BUGS.md](BUGS.md)'s Phase 3 table and
 
 Tracked in [BUGS.md](BUGS.md). Headline items: the evaluator's
 hallucination-flag rate still has some defensible-but-arguably-strict false
-positives worth a future prompt-tuning pass, `duckduckgo-search` is
-deprecated upstream in favor of a renamed `ddgs` package (migration not
-done yet), and CI has no branch-protection rule requiring it to pass before
-merge (a repo-settings change, not a commit).
+positives worth a future prompt-tuning pass, and CI has no branch-protection
+rule requiring it to pass before merge (a repo-settings change, not a
+commit).

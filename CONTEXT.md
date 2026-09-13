@@ -168,6 +168,56 @@ response.
 
 Full before/after detail is in [BUGS.md](BUGS.md)'s Phase 3 table.
 
+## Phase 4 — dependency hygiene & universe fix (this session, 2026-09-13)
+
+Closed the two concrete "Still open" items Phase 3 left behind — and, in
+the process, a live run caught a third problem that a changelog/API-shape
+check alone would have missed entirely.
+
+- `duckduckgo-search` (deprecated upstream) replaced with the renamed
+  `ddgs` package (`ddgs==9.16.0`). Confirmed live, before editing any code,
+  that `DDGS().text(query, max_results=N)` returns the same `title`/`href`/
+  `body` keys `search_reddit_agent.py` depends on — this was a same-API
+  rename, not a version bump with behavior changes. The old package was
+  uninstalled from the venv to prove the new one is fully self-sufficient.
+- `SQ` in `config.STOCK_UNIVERSE` — delisted since Square Inc. renamed to
+  Block, Inc. and moved to ticker `XYZ` in December 2021 — swapped for
+  `XYZ`. Same company, so no universe-composition decision was needed;
+  confirmed live via `yfinance.Ticker("XYZ")` that it resolves before
+  wiring it into config.
+- **The live run immediately failed** after those two changes landed: 16
+  of 24 (67%) Reddit searches failed, tripping the fail-loud threshold.
+  Root cause: `ddgs`'s default `backend="auto"` fans one `.text()` call out
+  to ~8 engines in parallel (Google, Brave, Mojeek, Yahoo, Startpage,
+  Wikipedia, Grokipedia, DuckDuckGo itself) instead of querying DuckDuckGo
+  alone the way `duckduckgo-search` always did — across 24 tickers that's
+  roughly 8x the request volume, and several of those engines 429/403
+  almost immediately. Fixed by pinning `backend="duckduckgo"` explicitly in
+  `search_reddit_agent.py`'s `.text()` call, restoring the original
+  single-engine behavior. Re-ran live: failures dropped to 4/24 (17%,
+  DuckDuckGo's own occasional soft-throttle, not a new problem), full
+  pipeline completed with `Status: success`.
+
+Verified, not just claimed: the pre-code-change API-shape check (same
+result-dict keys) was necessary but not sufficient — it didn't cover a
+changed *default parameter value*, which only a real 24-ticker end-to-end
+run exposed. After the fix, `pytest` passed 64/64 with no new warnings, and
+a full live `test_pipeline.py` run completed in 229.27s: `XYZ` fetched and
+scored normally (StockTwits bullish, landed in the Conservative tier), 10
+tickers got full LLM synthesis + evaluation, 14 got rule-based
+classification, and risk-tier overrides fired as designed
+(`PLTR`/`MSTR`/`RBLX` → Speculative on extreme volatility, `HOOD` →
+Aggressive on contradictory sentiment). Full before/after detail in
+[BUGS.md](BUGS.md)'s Phase 4 table.
+
+Left open, deliberately not touched this phase: the evaluator's remaining
+hallucination-flag false positives (needs fresh live-run evidence before
+another prompt-tuning pass is justified, not a code fix — this run's
+2 flags out of 10, on MSFT and JPM, are consistent with the previously
+documented pattern) and GitHub branch-protection on `main` (a repo-settings
+action outside what a commit can express — see BUGS.md's "Still open"
+section).
+
 ## Design notes worth knowing before touching scoring logic
 
 - `config.py` is the single source of truth for tunable constants

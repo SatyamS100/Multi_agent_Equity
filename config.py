@@ -42,7 +42,7 @@ CORS_ORIGINS = [
 # ── STOCK UNIVERSE ────────────────────────────────────────────────────────────
 # 24 tickers chosen deliberately across risk tiers:
 #   Mega-cap Tech:            AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AMD
-#   High Beta / Retail:       PLTR, COIN, SHOP, SQ, GME, AMC, MSTR
+#   High Beta / Retail:       PLTR, COIN, SHOP, XYZ, GME, AMC, MSTR
 #   Value / Dividend:         JPM, XOM, PFE, DIS
 #   Speculative / Growth:     SOFI, RIVN, RBLX, SNAP, HOOD
 #
@@ -54,7 +54,7 @@ STOCK_UNIVERSE = [
     # Mega-cap Tech
     "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD",
     # High Beta / Retail Darlings
-    "PLTR", "COIN", "SHOP", "SQ", "GME", "AMC", "MSTR",
+    "PLTR", "COIN", "SHOP", "XYZ", "GME", "AMC", "MSTR",
     # Value / Dividend
     "JPM", "XOM", "PFE", "DIS",
     # Speculative / Growth

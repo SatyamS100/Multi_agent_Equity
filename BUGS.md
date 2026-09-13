@@ -78,15 +78,33 @@ Full live-run evidence (log excerpts, exact hallucination-flag counts,
 model list from the Groq API) is in this session's transcript; the
 summary above is what a future reader needs without re-deriving it.
 
-## Still open (Phase 4+ candidates)
+## Phase 4 — dependency hygiene & universe fix (done, 2026-09-13)
 
-- **`duckduckgo_search` is deprecated upstream in favor of a renamed
-  `ddgs` package** (emits a `RuntimeWarning` on every `DDGS()` call as of
-  8.1.1). The 8.1.1 pin is a real, verified fix for issue #14 above and
-  fine to run on today, but the package will eventually stop receiving
-  updates. Migrating `search_reddit_agent.py` to `ddgs` (constructor/
-  `.text()` API is expected to be near-identical based on the 8.1.1 source)
-  is future work, not urgent.
+Closed out the two concrete, low-risk items from Phase 3's "Still open"
+list. Left the other two open — one needs live-run evidence before further
+prompt tuning is justified, the other needs a GitHub repo-settings change
+outside what a commit can express (see "Still open" below).
+
+| # | Issue | Fix |
+|---|-------|-----|
+| 19 | `duckduckgo-search` is deprecated upstream in favor of a renamed `ddgs` package; 8.1.1 (Phase 3's fix for issue #14) still worked but was on a dead-end package. | Verified live that `ddgs==9.16.0`'s `DDGS().text(query, max_results=N)` API is unchanged (same `title`/`href`/`body` result keys) before touching code. Swapped `search_reddit_agent.py`'s import and `requirements.txt`'s pin from `duckduckgo-search==8.1.1` to `ddgs==9.16.0`, uninstalled the old package from the venv, and confirmed `pytest` still passes 64/64 with no `duckduckgo_search`/`ddgs` deprecation warning in the output. |
+| 20 | `SQ` in `config.STOCK_UNIVERSE` has been delisted on Yahoo Finance since Square Inc. renamed to Block, Inc. and moved to ticker `XYZ` in December 2021 — `fetch_ticker_fundamentals` was correctly excluding it every run (not a bug, just dead weight in the universe). | Swapped `SQ` → `XYZ` in `config.STOCK_UNIVERSE` (same company, same "High Beta / Retail" category — not a universe redesign). Verified live via `yfinance.Ticker("XYZ")` that it resolves (`shortName: Block, Inc.`, `sector: Technology`) and returns 22 rows of price history before wiring it in. |
+| 21 | **Found only by the live run, not by the API-shape check above**: `ddgs`'s default `backend="auto"` fans a single `.text()` call out to ~8 engines in parallel (DuckDuckGo, Google, Brave, Mojeek, Yahoo, Startpage, Wikipedia, Grokipedia) instead of querying DuckDuckGo alone like `duckduckgo-search` did. Across a 24-ticker loop this multiplies request volume ~8x, and several of those engines (Google, Brave, Mojeek) 429/403 almost immediately — the first live pipeline run after the issue #19 swap failed outright with 16/24 (67%) Reddit-search failures, tripping `raise_if_too_many_failed`'s 50% threshold exactly as designed. | Pinned `backend="duckduckgo"` explicitly in `ddgs.text()`'s call in `search_reddit_agent.py`, restricting it back to the single DuckDuckGo-only engine `duckduckgo-search` always used. Re-ran the live pipeline: failures dropped from 16/24 to 4/24 (17%, DuckDuckGo's own soft-throttle — occasional `202` responses — well under the 50% threshold), full run completed with `Status: success`. |
+
+Verified, not just claimed: the very first live pipeline run after the
+issue #19/#20 swap actually *failed* (issue #21) — the API-shape check
+alone wasn't enough to catch a default-parameter behavior change. Only a
+real 24-ticker end-to-end run surfaced it. After the issue #21 fix,
+re-ran `test_pipeline.py` end-to-end against live StockTwits, yfinance,
+`ddgs`-backed DuckDuckGo, and Groq: **`Status: success`, 229.27s, all 24
+tickers classified** (10 LLM-analysed + 14 rule-based), `XYZ` fetched and
+scored normally (StockTwits bullish, included in the Conservative tier),
+risk-tier overrides fired correctly (`PLTR`/`MSTR`/`RBLX` → Speculative on
+extreme volatility, `HOOD` → Aggressive on contradictory sentiment) — see
+CONTEXT.md's Phase 4 section for the full narrative.
+
+## Still open (Phase 5+ candidates)
+
 - **The evaluator's remaining hallucination flags** (issue #16) still
   include some defensible-but-arguably-false-positives — e.g. flagging
   "all 30 StockTwits messages are bullish" as ungrounded when the evaluator
@@ -94,13 +112,11 @@ summary above is what a future reader needs without re-deriving it.
   not all 30, so it can't independently verify the claim even though it's
   a correct restatement of provided data. Worth a further prompt-engineering
   pass if evaluator-driven confidence penalties start looking systematically
-  too harsh, but not chased further in Phase 3 to avoid unvalidated
-  whack-a-mole prompt tuning.
+  too harsh, but not chased further to avoid unvalidated whack-a-mole
+  prompt tuning without fresh live-run evidence.
 - CI only runs on GitHub's hosted runners for push/PR to `main` — no
-  branch-protection rule requires the check to pass before merging (that's
-  a repo-settings change, not something a commit can express).
-- `SQ` in `config.STOCK_UNIVERSE` is delisted on Yahoo Finance as of this
-  writing (`fetch_ticker_fundamentals` correctly logs and excludes it —
-  not a bug, `data_fetch_utils`'s 1/24 failure is well under the 50%
-  threshold) but it's dead weight in the universe. Low priority swap for a
-  live ticker next time `config.py` is touched.
+  branch-protection rule requires the check to pass before merging. This is
+  a GitHub repo-settings change (Settings → Branches → branch protection
+  rules, or `gh api repos/{owner}/{repo}/branches/main/protection`), not
+  something a commit can express — needs repo-admin action, done
+  deliberately rather than as a drive-by from an agent session.

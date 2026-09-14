@@ -85,14 +85,17 @@ serve it with any static file server; it calls the backend at
   systematic false-positive rate. If you add a field to one prompt's
   context, add it to the other, or run a live test to check for a spike in
   `hallucination_flag: true` results.
-- **`duckduckgo-search` (imported as `duckduckgo_search`, used by
-  `search_reddit_agent.py`) is pinned to `8.1.1`, not the latest.** 6.3.7
-  crashed intermittently (`primp.BuilderError: Invalid impersonate:
-  "chrome_100"`) because it randomly picks a browser-fingerprint preset per
-  `DDGS()` call from a hardcoded list that goes stale as `primp` evolves;
-  8.1.1 fixed this upstream. The package is itself deprecated in favor of a
-  renamed `ddgs` package (emits a `RuntimeWarning` on every call) — that
-  migration is documented as future work in BUGS.md, not done yet.
+- **`search_reddit_agent.py` uses the official Reddit API (PRAW), not
+  scraping.** Phase 0-5 used DuckDuckGo web search instead (no credentials
+  needed), but DuckDuckGo's anti-scraping defenses tightened to the point
+  of near-total live-run failure (BUGS.md issue #23) — Phase 6 reverted to
+  PRAW. This needs `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` in `.env` from
+  a read-only "script" app (https://www.reddit.com/prefs/apps).
+  `search_reddit_agent.get_reddit_client()` raises immediately if they're
+  unset, same fail-fast pattern as `graph.get_llm_client()`. Don't
+  reintroduce a scraping-based fallback to dodge the credential requirement
+  without discussing the reliability tradeoff first — that's the exact
+  tradeoff this migration made deliberately.
 - **`pytest` (bare invocation) only discovers `tests/`** — see
   `pytest.ini`. Root-level `test_pipeline.py` matches pytest's default
   `test_*.py` glob but has unconditional module-level side effects (runs

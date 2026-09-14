@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/SatyamS100/Multi_agent_Equity/actions/workflows/tests.yml/badge.svg)](https://github.com/SatyamS100/Multi_agent_Equity/actions/workflows/tests.yml)
 
-Fuses social sentiment (StockTwits, Reddit-via-search), quantitative
+Fuses social sentiment (StockTwits, Reddit via the official API), quantitative
 fundamentals (yfinance), and LLM synthesis (Groq + LangGraph) into a ranked,
 risk-classified view of a 24-stock universe. FastAPI backend, vanilla JS
 frontend.
@@ -21,7 +21,7 @@ this way, and [BUGS.md](BUGS.md) for known issues and what's still missing.
    ▼                     ▼                     ▼
 stocktwits_agent.py  search_reddit_agent.py  fundamentals.py
 (StockTwits API,     (Reddit posts via       (yfinance: price,
- labeled sentiment)   DuckDuckGo search)       RSI, volatility, P/E...)
+ labeled sentiment)   PRAW/Reddit API)         RSI, volatility, P/E...)
    │                     │                     │
    └─────────────────────┼─────────────────────┘
                          ▼
@@ -64,6 +64,11 @@ scorer placeholder/neutral data (see [BUGS.md](BUGS.md) #2, #8).
      current model ids at `GET https://api.groq.com/openai/v1/models`
    - `CORS_ORIGINS` — optional, comma-separated list of frontend origins
      allowed to call the API (defaults to `http://localhost:5500,http://127.0.0.1:5500`)
+   - `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` — required, from a
+     read-only "script" app created at https://www.reddit.com/prefs/apps
+     (no Reddit account password needed at runtime)
+   - `REDDIT_USER_AGENT` — optional, defaults to a generic identifier;
+     customize if you want your own per Reddit's API rules
 
 3. **Run the backend**:
    ```bash
@@ -97,8 +102,8 @@ success/failure/CORS behavior via FastAPI's `TestClient`, with the three
 data-fetch agents and `run_sentiment_graph` monkeypatched out.
 
 `test_pipeline.py` is a separate, manual, network-dependent smoke test that
-runs the real pipeline end-to-end (hits live StockTwits/yfinance/
-DuckDuckGo/Groq APIs — needs a real `GROQ_API_KEY`):
+runs the real pipeline end-to-end (hits live StockTwits/yfinance/Reddit/Groq
+APIs — needs a real `GROQ_API_KEY` and Reddit credentials):
 
 ```bash
 python test_pipeline.py
@@ -122,11 +127,17 @@ As of Phase 3, this has been run end-to-end against real StockTwits,
 yfinance, DuckDuckGo, and Groq APIs (not just mocked tests) — including a
 real browser click-through of the actual frontend against a real running
 backend. See [BUGS.md](BUGS.md)'s Phase 3 table and
-[CONTEXT.md](CONTEXT.md) for what that run found and fixed.
+[CONTEXT.md](CONTEXT.md) for what that run found and fixed. **Phase 6**
+replaced the DuckDuckGo-search Reddit source with the official Reddit API
+(PRAW) after DuckDuckGo's anti-scraping defenses made live runs unreliable
+(see BUGS.md issue #23) — that change is unit-verified (imports cleanly,
+fail-fast credential check works, `pytest` passes) but pending a live
+end-to-end re-run once real Reddit API credentials are available.
 
 ## Known limitations
 
-Tracked in [BUGS.md](BUGS.md). Headline items: the evaluator's
+Tracked in [BUGS.md](BUGS.md). Headline items: the Phase 6 PRAW migration
+still needs a live end-to-end verification run, the evaluator's
 hallucination-flag rate still has some defensible-but-arguably-strict false
 positives worth a future prompt-tuning pass, and CI has no branch-protection
 rule requiring it to pass before merge (a repo-settings change, not a

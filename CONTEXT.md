@@ -282,6 +282,58 @@ make Reddit-search failure degrade gracefully instead of hard-aborting the
 pipeline, or accept the live-run flakiness as a known limitation of a
 free/unauthenticated data source.
 
+## Phase 6 — revert Reddit source to the official API (this session, 2026-09-14)
+
+Phase 5 left a real architectural question open: DuckDuckGo's
+anti-scraping defenses had tightened to the point of near-total live-run
+failure for `search_reddit_agent.py` (100%, then 96%, of the universe
+failing across two live runs), and three options were laid out rather than
+picked unilaterally. The user chose explicitly: revert to the official,
+credentialed Reddit API (PRAW) — the same trade the project's own history
+made in reverse once already (see the History section above: PRAW → Reddit
+dropped → DuckDuckGo search, specifically to avoid needing credentials).
+That earlier tradeoff has now flipped back.
+
+- Rewrote `search_reddit_agent.py` on `praw`, searching
+  `r/wallstreetbets+stocks+investing` per ticker via `subreddit.search(...,
+  time_filter="week")` instead of scraping DuckDuckGo. Added
+  `get_reddit_client()` with the same fail-fast pattern as
+  `graph.get_llm_client()` — raises a clear `RuntimeError` immediately if
+  `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` are unset, rather than failing
+  deep in the fetch loop with an opaque `prawcore` auth error.
+- Kept the `mention_momentum`/`spike_detected` formulas byte-for-byte
+  identical in shape (`min(mentions_24h / 5.0, 1.0)`, spike at
+  `mentions_24h >= 8`) — this is a data-source swap, not a scoring-formula
+  change, consistent with CLAUDE.md's guidance to treat those as separate,
+  deliberate decisions. `avg_post_score` and the 24h/7d mention split *did*
+  get more accurate as a side effect: PRAW gives real post upvotes and real
+  timestamps, which DuckDuckGo's scraped search results never had (the old
+  code used a mocked constant and an unscoped-search-count heuristic to
+  approximate them) — the same category of improvement as Phase 1 wiring in
+  the previously-dead `price_chart` field, not a formula redesign.
+- Dependency fallout, caught before it became a runtime surprise: adding
+  `praw` force-upgrades `requests` (`prawcore` requires `>=2.34.2`, the repo
+  had `2.32.4` pinned). Bumped the pin, then verified a *clean* venv
+  install (not just `pip install` on top of the existing one) resolves with
+  no conflicts and every top-level module still imports — the same
+  clean-venv discipline CLAUDE.md calls out as necessary for
+  `langgraph`/`langchain-*` bumps, applied here too since any pin change
+  can ripple.
+
+**Verified so far:** import check, `pytest` (64/64, no existing test
+exercised this module directly), and the fail-fast credential check
+(confirmed `get_reddit_client()` raises with `REDDIT_CLIENT_ID` unset) all
+pass. **Not yet verified live** — this session had no real Reddit API
+credentials available. Rather than claim the migration complete on unit
+checks alone, it's tracked as the first "Still open" item in
+[BUGS.md](BUGS.md) (issue #24), the same way Phase 0-2's GROQ-dependent
+work stayed explicitly unverified-live until Phase 3 supplied a real key.
+Needs `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` from a read-only "script"
+app (https://www.reddit.com/prefs/apps) before a real `test_pipeline.py`
+run can close it out — and, if that run completes, it would also finally
+supply the fresh evaluator hallucination-flag evidence Phase 4-5 couldn't
+gather.
+
 ## Design notes worth knowing before touching scoring logic
 
 - `config.py` is the single source of truth for tunable constants

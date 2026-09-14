@@ -129,39 +129,47 @@ pipeline never reaches synthesis/evaluation while Reddit-search aborts
 first. It remains open, now explicitly blocked on issue #23 rather than
 just "needs a run."
 
-## Still open (Phase 6+ candidates)
+## Phase 6 — revert Reddit source to the official API (this session, 2026-09-14)
 
-- **`search_reddit_agent.py`'s DuckDuckGo-search data source is now
-  unreliable to the point of near-total failure** (issue #23) — two
-  consecutive live runs failed 100% and 96% of the universe. This is a
-  product/architecture decision, not a drive-by fix: the project's own
-  history (see CONTEXT.md) shows Reddit was deliberately moved from the
-  official PRAW API to DuckDuckGo search specifically to avoid needing
-  Reddit API credentials; that tradeoff has now flipped. Candidate
-  directions for a future phase: (a) revert to PRAW with real Reddit API
-  credentials, trading "no credentials needed" for reliability; (b) make
-  Reddit-search failure degrade gracefully (redistribute `SCORE_WEIGHTS` to
-  StockTwits + fundamentals only) instead of hard-aborting the whole
-  pipeline — but this would relax the "fail loud on majority data-fetch
-  failure" design principle (CLAUDE.md) that Phase 0-1 deliberately built
-  in, so needs explicit sign-off, not a silent change; (c) accept it as a
-  known limitation of a free/unauthenticated data source and rely on the
-  mocked `pytest` suite (unaffected — it doesn't hit real DDG) as the
-  day-to-day correctness contract instead of expecting live runs to
-  reliably complete. Do not pursue proxy rotation, additional
-  fingerprint/header spoofing, or CAPTCHA handling to push through the
-  throttle harder — that crosses from resilience into circumventing an
-  anti-scraping control.
-- **The evaluator's remaining hallucination flags** (issue #16) — Phase 4's
-  fresh-evidence item is now also blocked by issue #23: the pipeline never
-  reaches `evaluation_node` while Reddit-search aborts first, so no new
-  flag-rate data could be gathered this session. Still open: some
+Closed out issue #23 by picking option (a) from Phase 5's "Still open"
+candidates: revert `search_reddit_agent.py` from DuckDuckGo-search scraping
+back to the official Reddit API (PRAW), trading the "no credentials needed"
+convenience back for reliability, per the user's explicit decision.
+
+| # | Issue | Fix |
+|---|-------|-----|
+| 24 | `search_reddit_agent.py`'s DuckDuckGo-search source was unreliable to the point of near-total failure (issue #23: 100%, then 96%, of the universe across two consecutive Phase 5 live runs). | Rewrote `search_reddit_agent.py` on top of `praw` (added `praw==8.0.3` to `requirements.txt`; bumped `requests` from `2.32.4` to `2.34.2` to satisfy `prawcore`'s dependency floor — verified clean-venv install and a full import check of every top-level module after the bump). Searches `r/wallstreetbets`, `r/stocks`, and `r/investing` (combined multi-subreddit query) for each ticker via `subreddit.search(..., time_filter="week")`. Added `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`/`REDDIT_USER_AGENT` to `config.py` and `.env.example`, and `get_reddit_client()`, which fails fast with a clear `RuntimeError` if credentials are unset — same pattern as `graph.get_llm_client()` for `GROQ_API_KEY`. Kept the `mention_momentum`/`spike_detected` formulas' shape identical (`min(mentions_24h / 5.0, 1.0)`, spike at `mentions_24h >= 8`) so this is a data-source swap, not a scoring-formula change — but `avg_post_score` now uses real post upvotes and `mentions_24h`/`mentions_7d` now use real post timestamps, instead of a mocked constant and an unscoped-search-count heuristic that DuckDuckGo search could never actually provide accurately. |
+
+**Verified so far, not yet complete:** `python -c "import backend"` passes,
+`pytest` passes 64/64 (no existing test exercised `search_reddit_agent.py`
+directly — none needed updating), and the fail-fast credential check was
+verified directly (`get_reddit_client()` raises `RuntimeError` with
+`REDDIT_CLIENT_ID` unset). **Not yet verified live** — this session had no
+real Reddit API credentials to run `test_pipeline.py` end-to-end against.
+Following this project's own standard (Phase 0-2 similarly shipped
+GROQ-dependent code unverified-live until Phase 3 supplied a real key),
+this is flagged as the first "Still open" item below rather than claimed as
+fully done.
+
+## Still open (Phase 7+ candidates)
+
+- **Phase 6's PRAW migration needs a live end-to-end verification run**
+  (issue #24) — needs `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` from a
+  read-only "script" app (https://www.reddit.com/prefs/apps) in `.env`,
+  then `python test_pipeline.py` against real StockTwits/yfinance/Reddit/
+  Groq. Check for: search actually returning posts for active tickers,
+  the fail-loud guard *not* firing under normal conditions (a regression
+  here would mean the credentials or query are wrong, not that Reddit is
+  throttling), and real `avg_post_score`/`mentions_24h` values looking
+  sane compared to the old mocked/heuristic ones.
+- **The evaluator's remaining hallucination flags** (issue #16) — blocked
+  since Phase 5 on a working end-to-end run; should be revisited together
+  with the item above, using the same live run. Still open: some
   defensible-but-arguably-false-positives (e.g. flagging "all 30 StockTwits
   messages are bullish" as ungrounded when the evaluator only sees 3 sample
   messages) were characterized in Phase 3-4. Worth a further
-  prompt-engineering pass once a live run can actually complete and supply
-  fresh evidence — not chased further without it, to avoid unvalidated
-  whack-a-mole prompt tuning.
+  prompt-engineering pass once fresh evidence exists — not chased further
+  without it, to avoid unvalidated whack-a-mole prompt tuning.
 - CI only runs on GitHub's hosted runners for push/PR to `main` — no
   branch-protection rule requires the check to pass before merging. This is
   a GitHub repo-settings change (Settings → Branches → branch protection

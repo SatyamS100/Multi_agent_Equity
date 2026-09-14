@@ -1,6 +1,6 @@
 # Core data
 yfinance==0.2.66
-requests==2.32.4
+requests==2.34.2
 pandas==2.3.3
 numpy==2.3.5
 
@@ -10,10 +10,10 @@ langchain-groq==0.2.5
 langchain-core==0.3.60
 groq==0.13.1
 
-# API + Reddit-adjacent search
+# API + Reddit
 fastapi==0.115.6
 uvicorn==0.32.1
-ddgs==9.16.0
+praw==8.0.3
 
 # Environment + utilities
 python-dotenv==1.0.1

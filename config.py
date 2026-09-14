@@ -28,6 +28,19 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # if this one goes stale too.
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
+# Reddit API credentials (search_reddit_agent.py), from a read-only "script"
+# app created at https://www.reddit.com/prefs/apps. Phase 6 replacement for
+# the DuckDuckGo-search-based approach (Phase 0-5): that avoided needing
+# credentials but became unreliable once DuckDuckGo tightened anti-scraping
+# defenses to the point of near-total live-run failure (see BUGS.md issue
+# #23) — this trades that convenience back for a stable, ToS-compliant,
+# official API.
+REDDIT_CLIENT_ID     = os.getenv("REDDIT_CLIENT_ID")
+REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
+REDDIT_USER_AGENT    = os.getenv(
+    "REDDIT_USER_AGENT", "equity-sentiment-pipeline/1.0 (read-only script app)"
+)
+
 # ── CORS ───────────────────────────────────────────────────────────────────────
 # Comma-separated list of origins allowed to call the backend API.
 # Falls back to common local-dev frontend origins if unset.
